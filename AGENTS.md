@@ -16,9 +16,9 @@ SFrame, WARP, …)? See [`GLOSSARY.md`](GLOSSARY.md).
 1. **Do not decide logic. Scaffold it.** When you reach a function whose behavior
    involves a real engineering choice (an algorithm, a data layout, an
    error-handling strategy, a buffering decision), write the **signature, the doc
-   comment, and the datasheet reference**, leave the body as a `// TODO` with the
-   open question stated, and **stop for the human**. Do not fill it in to "keep
-   moving."
+   comment, and the datasheet reference**, leave the body as the three-line stub
+   block (`// TODO` / `// agent suggestion:` / `// human input:`), and **stop for
+   the human**. Do not fill it in to "keep moving."
 2. **One module at a time. Take the break.** Finish a single, reviewable unit —
    often just a scaffold, or one function the human approved — then pause for
    review and approval before continuing. No multi-module sprints. The human is
@@ -44,7 +44,8 @@ SFrame, WARP, …)? See [`GLOSSARY.md`](GLOSSARY.md).
              suggestions are guidance, not proof.
 2. SCAFFOLD  create the package file: types, exported signatures, doc comments,
              the KAT test wired to the (copied) vector — but function bodies are
-             `// TODO` stubs that state the open question.  → COMMIT, PAUSE.
+             three-line stub blocks (`// TODO` / `// agent suggestion:` /
+             `// human input:`).  → COMMIT, PAUSE.
 3. DIRECT    the human reviews the scaffold and decides how each body should work
              (or approves translating the embedded reference 1:1 into Go). One
              function at a time.
@@ -65,21 +66,39 @@ steps without approval.
 
 A scaffold is a complete, compiling skeleton with no logic. The doc comment is a
 normal, brief Go doc comment; there is **no** provenance/spec reference in the
-code (that was already said in the conversation):
+code (that was already said in the conversation). Every unfinished body uses the
+**three-line stub block**:
 
 ```go
 // SealFrame encrypts one media frame with the participant SFrame key.
 func (s *Session) SealFrame(plaintext []byte) ([]byte, error) {
-	// TODO(human): nonce + whether the header is authenticated.
+	// TODO
+	// agent suggestion: AES-GCM with a 16-byte LE-counter nonce; authenticate the
+	// varint header as AAD.
+	// human input:
 	return nil, errNotImplemented
 }
 ```
 
-When you write this, you say in the chat — not in the file — something like: "I'm
-scaffolding `SealFrame` for the send path's per-frame encryption; it comes from
-`sframe.rs`, it's AES-GCM, and the open decision is the 16-byte LE-counter nonce
-and whether the varint header is AAD." That is the explanation; the code stays
-clean.
+The three lines are a fixed protocol:
+
+- **`// TODO`** — the marker that this body is unimplemented.
+- **`// agent suggestion: <course of action>`** — your concrete proposed
+  implementation for this body, in one or a few lines. State what you would do, not
+  just what the open question is. This is your recommendation on the record.
+- **`// human input:`** — left blank for the human. Whatever they write after the
+  colon is their direction, and it **enters the implementation round**: when you
+  implement the body you follow the human input if present, and your own agent
+  suggestion only where they left it blank.
+
+When you write this, you also say in the chat — not in the file — something like:
+"I'm scaffolding `SealFrame` for the send path's per-frame encryption; it comes
+from `sframe.rs`, it's AES-GCM, and my suggestion is the 16-byte LE-counter nonce
+with the varint header as AAD." The chat carries the why; the stub carries the
+suggestion and the slot for the human's answer.
+
+All three lines are stripped when the body lands — the implemented code stays
+clean, with no `TODO`/suggestion/input residue.
 
 It must `go build` and `go vet` cleanly. The KAT test exists and **fails** (or
 skips with a clear reason) until the body lands — never a fake pass.
@@ -88,7 +107,9 @@ skips with a clear reason) until the body lands — never a fake pass.
 
 Comments earn their place or they do not exist:
 
-- **`// TODO(human): ...`** — an open decision or unfinished body.
+- **The three-line stub block** (`// TODO` / `// agent suggestion: ...` /
+  `// human input:`) — an unfinished body, per the scaffolding standard above. The
+  three lines exist only while the body is a stub and are removed when it lands.
 - **`// ASSUMPTION: ...`** — a choice made without full confirmation, stating what
   would invalidate it.
 - **A short context note** — only when a future reader would otherwise lose
