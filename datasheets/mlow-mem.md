@@ -7,8 +7,17 @@ the pulse/pitch/gains and LSF decode paths read through.
 
 **Validation vector:** `smpl_tables.json` — the runtime-built CDF tables this module
 backs (the decode paths that consume the heap window and cosine table are pinned by
-it). Copy it verbatim into `mlow/testdata/`. The heap window itself loads from
-`smpl_cc_blob.json`, which must also sit in `mlow/testdata/`.
+it). The heap window loads from `smpl_cc_blob.json`.
+
+> **Reference packaging change (patch `d441e5fa…current`).** Upstream now ships the
+> heap window and runtime tables as zlib+postcard `.bin` blobs
+> (`smpl_cc_blob.bin`, `smpl_tables.bin`, loaded via `smpl_tables_blob::load_blob`),
+> and the `.json` dumps are gitignored generator input. meowcaller keeps the
+> **JSON** form: we `go:embed mlow/smpl_cc_blob.json` and base64-decode at load (a
+> documented deviation — the decoded bytes are **identical**, verified: same 3
+> regions and pointers `g_cc/g_nrg/g_pitch/clk`). We do not depend on the Rust
+> `postcard` encoding. The decode-path KAT will use `smpl_tables.json` (== the new
+> `smpl_tables.bin` content).
 
 ## Reference source (verbatim — authoritative)
 
@@ -20,14 +29,15 @@ it). Copy it verbatim into `mlow/testdata/`. The heap window itself loads from
 //! replicate the WASM's exact pointer arithmetic byte for byte. Ported from the Go reference
 //! (`smpl_mem.go`); the window was dumped from a live func-3559 run into `smpl_cc_blob.json`.
 
-use base64::Engine;
 use std::sync::OnceLock;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct SmplMemRegion {
     base: u32,
     data: Vec<u8>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct SmplMem {
     regions: Vec<SmplMemRegion>,
     pub(crate) g_cc: u32,
@@ -38,39 +48,46 @@ pub(crate) struct SmplMem {
 
 static SMPL_MEM: OnceLock<SmplMem> = OnceLock::new();
 
+/// Parse the heap-window JSON dump into the runtime `SmplMem` (the table generator calls this, so the
+/// base64 decode runs once at gen time rather than every load).
+#[cfg(test)]
+pub(crate) fn parse_smpl_mem_json(s: &str) -> SmplMem {
+    #[derive(serde::Deserialize)]
+    struct RawRegion {
+        base: u32,
+        b64: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Raw {
+        regions: Vec<RawRegion>,
+        g_cc: u32,
+        g_nrg: u32,
+        g_pitch: u32,
+        clk: u32,
+    }
+    use base64::Engine;
+    let raw: Raw = serde_json::from_str(s).expect("smpl_cc_blob.json must parse");
+    let engine = base64::engine::general_purpose::STANDARD;
+    let regions = raw
+        .regions
+        .into_iter()
+        .map(|r| SmplMemRegion {
+            base: r.base,
+            data: engine.decode(r.b64).expect("smpl_cc_blob region b64"),
+        })
+        .collect();
+    SmplMem {
+        regions,
+        g_cc: raw.g_cc,
+        g_nrg: raw.g_nrg,
+        g_pitch: raw.g_pitch,
+        g_clk: raw.clk,
+    }
+}
+
 pub(crate) fn load_smpl_mem() -> &'static SmplMem {
     SMPL_MEM.get_or_init(|| {
-        #[derive(serde::Deserialize)]
-        struct RawRegion {
-            base: u32,
-            b64: String,
-        }
-        #[derive(serde::Deserialize)]
-        struct Raw {
-            regions: Vec<RawRegion>,
-            g_cc: u32,
-            g_nrg: u32,
-            g_pitch: u32,
-            clk: u32,
-        }
-        let raw: Raw = serde_json::from_str(include_str!("testdata/smpl_cc_blob.json"))
-            .expect("smpl_cc_blob.json must parse");
-        let engine = base64::engine::general_purpose::STANDARD;
-        let regions = raw
-            .regions
-            .into_iter()
-            .map(|r| SmplMemRegion {
-                base: r.base,
-                data: engine.decode(r.b64).expect("smpl_cc_blob region b64"),
-            })
-            .collect();
-        SmplMem {
-            regions,
-            g_cc: raw.g_cc,
-            g_nrg: raw.g_nrg,
-            g_pitch: raw.g_pitch,
-            g_clk: raw.clk,
-        }
+        super::smpl_tables_blob::load_blob(include_bytes!("testdata/smpl_cc_blob.bin"))
     })
 }
 

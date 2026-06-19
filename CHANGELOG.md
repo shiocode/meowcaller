@@ -7,6 +7,28 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### reference sync (patch `d441e5fa…current`)
+- Applied the upstream `wacore/src/voip/mlow/*.rs` source changes to the local
+  reference. Net effect on **built** modules: none functional.
+  - `smpl_mem.rs`: loader refactored (runtime tables now zlib+postcard `.bin` via
+    new `smpl_tables_blob::load_blob`; the inline JSON parse became a `#[cfg(test)]`
+    generator helper). The `SmplMem` memory model and **all accessors are
+    byte-identical** → `mlow/mem` Go and tests unchanged. The heap-window data is
+    verified identical (same regions + `g_cc/g_nrg/g_pitch/clk`), so our embedded
+    `smpl_cc_blob.json` stays valid. Datasheet `mlow-mem.md` updated to the current
+    source and the packaging change; SOT permalinks stay pinned to the ported
+    commit `674e851…`.
+  - `toc.rs`, `rangecoder.rs`, `smpl_lpc.rs`, `silk_lsf_cos_tab.rs`, `smpl_perc.rs`
+    are **not** in the patch → `toc`, `rangecoder`, `mem` cosine table, and the
+    `lpc` scaffold/FFT-dependency are unaffected.
+- Not applied: the binary `.bin` blobs (patch lacks full index lines) and the
+  `smpl_cc_blob.json` / `smpl_tables.json` deletions — we keep the JSON as our data
+  source (the `.bin` are an upstream re-encoding of identical data).
+- Flag: the patch also changed the reference for not-yet-built modules
+  (`smpl_decode`, `smpl_lsf_quant`, `smpl_synth`, `smpl_pitch_enc`, `analysis`,
+  `encode`). Their pre-written datasheets now carry stale verbatim source; they will
+  be re-ingested from the (now-current) local reference when each module is built.
+
 ### mlow/lpc
 - scaffolded: constants + the five public envelope functions (smplWindowLPC20,
   smplLPCAnalyzeWithF2, smplLPCInterpol/Idx, smplA2NLSF16) with three-line stubs.
