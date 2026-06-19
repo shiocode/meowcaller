@@ -49,8 +49,11 @@ SFrame, WARP, …)? See [`GLOSSARY.md`](GLOSSARY.md).
 3. DIRECT    the human reviews the scaffold and decides how each body should work
              (or approves translating the embedded reference 1:1 into Go). One
              function at a time.
-4. IMPLEMENT the approved function(s) only, as clean Go that never names the
-             reference. Keep the KAT test running.  → COMMIT per fn, PAUSE.
+4. IMPLEMENT the approved function(s) only, as clean Go that ports the reference
+             (with the `// Source of truth:` line; never imports/copies it). Keep
+             the KAT test running. Before shipping the commit, run a quick review
+             with `/code-review` (the CodeRabbit CLI/skill) and address what it
+             surfaces.  → COMMIT per fn, PAUSE.
 5. VERIFY    when the module's body is complete, its KAT must pass. Then run
              `git diff <scaffold-commit>..<impl-commit>` and confirm the actual
              change matches what you told the human you changed — same functions,
@@ -150,6 +153,9 @@ exception.
   `(mlow/pitch: KAT-verify against pitch_vectors.json)`.
 - Every commit updates [`CHANGELOG.md`](CHANGELOG.md) under the module with the
   new state (`scaffolded` / `implemented` / `KAT-verified`).
+- Before shipping an **implementation** commit (a function body landing), run
+  `/code-review` (the CodeRabbit CLI/skill) for a quick review and address its
+  findings first. Scaffold/datasheet/docs commits don't require it.
 - Commit messages state **what was validated** when relevant (which vector,
   pass/fail). No attribution lines. No pushing unless the human asks.
 - When a commit's change is driven by a reference (Rust) or wacrg spec that
