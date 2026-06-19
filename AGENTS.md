@@ -20,11 +20,13 @@ the working protocol. It is binding.
    often just a scaffold, or one function the human approved — then pause for
    review and approval before continuing. No multi-module sprints. The human is
    watching this get built and will say when to proceed.
-3. **Always be able to explain.** At any moment you must be able to state, for the
-   thing you are touching: *what it is, where it came from (Rust file + wacrg
-   doc), what its inputs/outputs are, what constants it uses, and what it is
-   validated against.* That information lives in the module's datasheet
-   (`spec/<module>.md`). Read it before touching the module; keep it open.
+3. **Explain the why in the conversation, never in the code.** As you scaffold
+   each thing, say in the chat — to the human, in plain language — *why* it exists
+   and what it does, so the human understands what is being built **without
+   reading any code comment**. The backing detail (Rust source, constants,
+   validation) lives in the datasheet you read; you speak the relevant part aloud.
+   The human should never have to read a comment to follow the reasoning. Code
+   carries logic; the conversation carries the why.
 4. **Verify against vectors, never vibes.** A behavior is correct only when its
    KAT passes. Reverse-engineered names and analysis notes are frequently wrong;
    the vector is the proof. If a module has no vector, that is a decision point
@@ -50,17 +52,23 @@ steps without approval.
 
 ## Scaffolding standard
 
-A scaffold is a complete, compiling skeleton with no logic:
+A scaffold is a complete, compiling skeleton with no logic. The doc comment is a
+normal, brief Go doc comment; there is **no** provenance/spec reference in the
+code (that was already said in the conversation):
 
 ```go
 // SealFrame encrypts one media frame with the participant SFrame key.
-// Spec: spec/srtp-sframe.md · Ref: whatsapp-rust sframe.rs:193 · KAT: sframe #test
 func (s *Session) SealFrame(plaintext []byte) ([]byte, error) {
-	// TODO(human): GCM nonce construction — confirm the 16-byte LE-counter layout
-	// and whether the varint header is appended (not AAD). See datasheet §Cipher.
+	// TODO(human): nonce + whether the header is authenticated.
 	return nil, errNotImplemented
 }
 ```
+
+When you write this, you say in the chat — not in the file — something like: "I'm
+scaffolding `SealFrame` for the send path's per-frame encryption; it comes from
+`sframe.rs`, it's AES-GCM, and the open decision is the 16-byte LE-counter nonce
+and whether the varint header is AAD." That is the explanation; the code stays
+clean.
 
 It must `go build` and `go vet` cleanly. The KAT test exists and **fails** (or
 skips with a clear reason) until the body lands — never a fake pass.
@@ -75,11 +83,13 @@ Comments earn their place or they do not exist:
 - **A short context note** — only when a future reader would otherwise lose
   non-obvious context (a magic constant's origin, a byte-order quirk, a deviation
   from the reference and why).
-- **Doc comments** on exported identifiers, per Go convention, including the
-  `Spec:`/`Ref:`/`KAT:` provenance line.
+- **Doc comments** on exported identifiers, per Go convention — a brief statement
+  of what it is. **No** spec/ref/KAT provenance lines in code; that belongs in the
+  conversation and the datasheet, not in comments the human must read.
 
-Do **not** narrate what the code plainly does. Clean code is the default;
-comments are the exception.
+Do **not** narrate what the code plainly does, and do **not** use comments to
+explain *why* — say the why out loud. Clean code is the default; comments are the
+exception.
 
 ## Commits and changelog
 
@@ -92,13 +102,19 @@ comments are the exception.
 - Commit messages state **what was validated** when relevant (which vector,
   pass/fail). No attribution lines. No pushing unless the human asks.
 
-## Explaining on demand
+## Explaining as you go (in conversation)
+
+Narrate the why **proactively**, in the chat, as you work — so the human follows
+what is being built and why in real time, without reading the code to find out.
+Before scaffolding a module, say what it is and why it is next; as you place each
+envelope, say what it does and where it comes from; when you make or defer a
+decision, say so.
 
 If the human asks "what is this / is this right / what did we validate?", answer
-from the datasheet and the vector, concretely: the Rust source location, the
+concretely from the datasheet and the vector: the Rust source location, the
 constants, the KAT file and what it covers, and any open assumptions. If you
 cannot answer from the datasheet, the datasheet is incomplete — say so and fix it
-before proceeding.
+before proceeding. None of this lives in code comments.
 
 ## What never happens here
 
