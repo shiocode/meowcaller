@@ -44,6 +44,21 @@ First audible milestone: **#15 decoder** decodes the real
 `inbound_capture_frames.json` to PCM matching `e2e_vectors.json`. Everything before
 it serves that.
 
+## Reference KAT status (verified 2026-06)
+
+The reference implementation's own test suite was run (`cargo test --features
+voip`). Result: the **decoder/receive path, keying, signaling, and transport all
+pass** their vectors — including the end-to-end decode milestone. **One test
+fails:** the **encoder** pitch estimator (reference `smpl_pitch_enc`,
+`pitch_estimator_matches_c_ground_truth`) diverges from the C ground truth by
+`max_err ≈ 0.030`. So:
+
+- The decoder-path vectors (modules 01–15) are trustworthy byte/precision targets.
+- The encoder pitch estimator (part of module **07 pitch** / **16 encoder**) is a
+  **known soft-divergence in the reference itself** — do not treat it as a
+  byte-exact target; a faithful port inherits the same ~0.03 gap. Flagged in the
+  affected datasheets.
+
 Datasheets are written **one at a time, when we reach the module** — not
 bulk-generated ahead. The exemplar [`datasheets/mlow-toc.md`](datasheets/mlow-toc.md)
 is the quality bar.

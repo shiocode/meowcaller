@@ -1460,6 +1460,13 @@ func SmplPitch(st *PitchEstState, ltpBuf []float32, f2 *[FLen]float32, codedAsAc
   matches. The constant filter tables are written as decimal `f32` literals — copy
   the digits verbatim, do not re-derive.
 - The estimator loads a JSON table fixture once; the decoder uses a heap-window ROM.
+- `TODO(human)`: **the encoder pitch estimator does not byte-match its own
+  reference.** Running the reference test suite, its
+  `pitch_estimator_matches_c_ground_truth` fails with `max_err ≈ 0.030` against the
+  C ground truth. So do **not** target byte/precision-exact for the estimator path
+  — a faithful port inherits the same ~0.03 gap. The DECODER pitch (`pitch_match_go`)
+  does pass and is an exact target. Decide the estimator's acceptance tolerance with
+  a human before treating this module "done".
   `TODO(human):` decide the Go embedding strategy for `smpl_pitch_tables.json` and
   confirm the `RangeDecoder`/`SmplMem`/`SmplLsfState` surfaces (including
   `decode_64_fine_sym`, `prev_gain_idx`, `prev_filt_idx`, `prev_lag`, `prev_frac_lag`)
