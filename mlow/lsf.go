@@ -12,13 +12,14 @@ import (
 	"github.com/purpshell/meowcaller/mlow/internal/tables"
 )
 
-// smplLsfTablesBlob is the runtime LSF CDF table set (func 3559 output) as a
+// smplTablesBlob is the runtime LSF CDF table set (func 3559 output) as a
 // zlib-compressed SmplLsfTables protobuf — the byte-identical blob the reference
-// embeds (testdata/smpl_tables.bin). It lives at the package root, not testdata,
-// because it is a production asset, mirroring smpl_cc_blob.bin in mem.go.
+// embeds (its testdata/smpl_tables.bin). It keeps the reference's filename and
+// lives at the package root, not testdata, because it is a production asset —
+// mirroring smpl_cc_blob.bin in mem.go.
 //
-//go:embed smpl_lsf_tables.bin
-var smplLsfTablesBlob []byte
+//go:embed smpl_tables.bin
+var smplTablesBlob []byte
 
 // LsfGrid holds the four stage-1 grid CDFs, selected by (match, stage1!=0).
 type LsfGrid struct {
@@ -53,7 +54,7 @@ var (
 func LoadSmplTables() *SmplTables {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/c697c36ffa7875c304ceea9154be30b66cada914/wacore/src/voip/mlow/smpl_decode.rs#L35-L43
 	smplTablesOnce.Do(func() {
-		zr, err := zlib.NewReader(bytes.NewReader(smplLsfTablesBlob))
+		zr, err := zlib.NewReader(bytes.NewReader(smplTablesBlob))
 		if err != nil {
 			panic("mlow: open lsf table blob: " + err.Error())
 		}
@@ -115,8 +116,8 @@ func pbToSmplTables(p *tables.SmplLsfTables) *SmplTables {
 
 // SmplLsfState is the cross-internal-frame decoder state. The LSF block resets the
 // pitch/LTP predictor fields to -1 whenever the stage-1 selector does not match the
-// previous internal frame. PrevLagSamples is encoder-only (pitch-search continuity
-// bias) and unused by the decoder.
+// previous internal frame. PrevLagSamples, PrevLagblk and PrevLagidx are encoder-only
+// (pitch-search/lag-predictor continuity) and unused by the decoder.
 type SmplLsfState struct {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/c697c36ffa7875c304ceea9154be30b66cada914/wacore/src/voip/mlow/smpl_decode.rs#L169-L186
 	PrevStage1     int32
@@ -127,6 +128,8 @@ type SmplLsfState struct {
 	PrevLag        int32
 	PrevFracLag    int32
 	PrevLagSamples float32
+	PrevLagblk     int32
+	PrevLagidx     int32
 }
 
 // SmplAdvanceLsfState advances the LSF predictor mirror exactly as the
@@ -137,12 +140,18 @@ type SmplLsfState struct {
 // compute (driving the abs-vs-delta lag pick).
 func SmplAdvanceLsfState(st *SmplLsfState, intf int, stage1 int32) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/c697c36ffa7875c304ceea9154be30b66cada914/wacore/src/voip/mlow/smpl_decode.rs#L192-L205
-	// TODO
-	// agent suggestion: m := intf != 0 && stage1 == st.PrevStage1; if !m reset the
-	//   four Prev{Gain,Filt,Lag,FracLag}Idx/Lag fields to -1; then set PrevStage1,
-	//   PrevMatch=m, HavePrev=true.
-	// human input:
-	panic("mlow: SmplAdvanceLsfState not yet implemented (scaffold)")
+	m := intf != 0 && stage1 == st.PrevStage1
+	if !m {
+		st.PrevGainIdx = -1
+		st.PrevFiltIdx = -1
+		st.PrevLag = -1
+		st.PrevFracLag = -1
+		st.PrevLagblk = -1
+		st.PrevLagidx = -1
+	}
+	st.PrevStage1 = stage1
+	st.PrevMatch = m
+	st.HavePrev = true
 }
 
 // SmplLsfIndices is the decoded per-internal-frame LSF index set. StageNraw[k] is
@@ -173,13 +182,58 @@ func DecodeSmplLsf(
 	intf int,
 ) SmplLsfIndices {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/c697c36ffa7875c304ceea9154be30b66cada914/wacore/src/voip/mlow/smpl_decode.rs#L218-L291
-	// TODO
-	// agent suggestion: mirror decode_smpl_lsf read-for-read — sel pick → DecodeCDF
-	//   on LsfSel[sel]; compute m := intf!=0 && stage1==st.PrevStage1 and reset the
-	//   predictor on !m (BEFORE recording st.PrevStage1=stage1); grid CDF pick on
-	//   (m, stage1!=0); set st.PrevMatch=m, st.HavePrev=true; loop 16 coeffs filling
-	//   Stage2[k]=DecodeCDF(c) and StageNraw[k]=len(c)-2; Extra=DecodeCDF(LsfExtra).
-	//   Index tables with int(stage1)/int(grid) at the use site.
-	// human input:
-	panic("mlow: DecodeSmplLsf not yet implemented (scaffold)")
+	var idx SmplLsfIndices
+
+	// Read 1 — stage-1 selector. Frame 0 uses dedicated row 0; later frames pick
+	// row 2 if the previous stage-1 was nonzero, else row 1.
+	sel := 0
+	if intf != 0 {
+		if st.PrevStage1 != 0 {
+			sel = 2
+		} else {
+			sel = 1
+		}
+	}
+	stage1 := dec.DecodeCDF(t.LsfSel[sel])
+	idx.Stage1 = stage1
+
+	// match := (not the first frame) && stage1 == prev. On a no-match the four
+	// pitch/LTP predictor fields reset to -1, recorded BEFORE PrevStage1 is updated.
+	m := intf != 0 && stage1 == st.PrevStage1
+	if !m {
+		st.PrevGainIdx = -1
+		st.PrevFiltIdx = -1
+		st.PrevLag = -1
+		st.PrevFracLag = -1
+	}
+	st.PrevStage1 = stage1
+
+	// Read 2 — stage-1 grid. Outer select on match, inner on the current stage1.
+	var gridCDF []uint16
+	switch {
+	case m && stage1 != 0:
+		gridCDF = t.LsfGrid.Match1
+	case m:
+		gridCDF = t.LsfGrid.Match1Alt
+	case stage1 != 0:
+		gridCDF = t.LsfGrid.Match0Alt
+	default:
+		gridCDF = t.LsfGrid.Match0
+	}
+	grid := dec.DecodeCDF(gridCDF)
+	idx.Grid = grid
+	st.PrevMatch = m
+	st.HavePrev = true
+
+	// Read 3 — 16 stage-2 residuals, each coeff k from LsfStage2[stage1][config][grid][k].
+	st2 := t.LsfStage2[int(stage1)][config][int(grid)]
+	for k := 0; k < 16; k++ {
+		c := st2[k]
+		idx.Stage2[k] = dec.DecodeCDF(c)
+		idx.StageNraw[k] = int32(len(c)) - 2
+	}
+
+	// Read 4 — the 3-symbol "extra" LSF CDF, which always fires for the 1:1 path.
+	idx.Extra = dec.DecodeCDF(t.LsfExtra)
+	return idx
 }

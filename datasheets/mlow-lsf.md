@@ -7,9 +7,15 @@ Media layer; the first parameter block decoded out of a media frame body.
 
 **Validation vector:** `lsf_vectors.json` — for each captured frame, decoding the
 body (skipping the leading TOC byte) must reproduce the listed `stage1`, `grid`,
-`extra`, and 16-entry `stage2`. Copy it verbatim into `mlow/testdata/`. (The CDF
-tables it reads load from `smpl_tables.json`, which must also sit in
-`mlow/testdata/`.)
+`extra`, and 16-entry `stage2`. Copy it verbatim into `mlow/testdata/`.
+
+**Table asset:** the CDF tables load from the reference's `smpl_tables.bin` — a
+zlib-compressed `SmplLsfTables` protobuf (`tables.proto`). It is a **production
+asset**, embedded at the package root (`mlow/smpl_tables.bin`, the reference's own
+filename), not `testdata/`. The KAT copy `smpl_tables.json` stays in
+`mlow/testdata/` purely so a test can cross-check the decoded blob against the C
+capture. (Convention: KAT inputs live in `testdata/`; production assets keep the
+reference's name at the package root, as `smpl_cc_blob.bin` does.)
 
 ## Reference source (verbatim — authoritative)
 
@@ -25,7 +31,7 @@ tables it reads load from `smpl_tables.json`, which must also sit in
 use super::rangecoder::RangeDecoder;
 use std::sync::OnceLock;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct LsfGrid {
     pub(crate) match1: Vec<u16>,
     pub(crate) match1_alt: Vec<u16>,
@@ -35,7 +41,7 @@ pub(crate) struct LsfGrid {
 
 /// Runtime CDF tables (captured from WASM func 3559). Extra fields in the JSON (gain_tab_*) are
 /// ignored until the gains/synth layers need them.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct SmplTables {
     pub(crate) lsf_sel: Vec<Vec<u16>>,
     pub(crate) lsf_grid: LsfGrid,
@@ -50,10 +56,18 @@ static SMPL_TABLES: OnceLock<SmplTables> = OnceLock::new();
 
 pub(crate) fn load_smpl_tables() -> &'static SmplTables {
     SMPL_TABLES.get_or_init(|| {
-        serde_json::from_str(include_str!("testdata/smpl_tables.json"))
-            .expect("smpl_tables.json must parse")
+        // `smpl_tables.bin` is a zlib-compressed `SmplLsfTables` protobuf (tables.proto). Protobuf
+        // (not postcard) so the byte-identical blob also loads in the Go port via prost/google.proto.
+        let pb: PbSmplLsfTables =
+            super::smpl_tables_blob::load_blob_prost(include_bytes!("testdata/smpl_tables.bin"));
+        pb_into_smpl_tables(pb)
     })
 }
+
+// The runtime `SmplTables` above keeps its native u16/nested-Vec shape; a set of hand-derived prost
+// messages (`PbSmplLsfTables`/`PbLsfGrid`/`PbLsfStage2S1..S3`/`PbCdf`) mirror `tables.proto` and are
+// the on-disk format only. u16 CDF entries widen to u32 on the wire; `pb_into_smpl_tables` narrows
+// them back. The table generator encodes via `smpl_tables_to_pb_bytes` → zlib. (Bodies elided here.)
 
 /// Cross-internal-frame decoder state (func 3597 keeps it in the struct func 3545 receives as
 /// p0/p5). The LSF block RESETS the pitch/LTP predictor fields to -1 whenever the stage-1 selector
@@ -70,6 +84,12 @@ pub(crate) struct SmplLsfState {
     /// Encoder-only: previous internal frame's chosen pitch lag (samples) for the pitch-search
     /// continuity bias. Unused by the decoder.
     pub(crate) prev_lag_samples: f32,
+    /// Encoder-only: the C `ParamsEncoder` lag predictor (`prev_lagblk`/`prev_lagidx`) that
+    /// `smpl_encode_lags` threads to pick the abs-vs-block-transition first lag and the per-block
+    /// delta-lag CMFs. Reset to -1 on a no-match (mirrors C `cond_coding == FALSE`). Unused by the
+    /// decoder (it rebuilds lags from the wire via its own contour predictor).
+    pub(crate) prev_lagblk: i32,
+    pub(crate) prev_lagidx: i32,
 }
 
 /// Advance the LSF predictor mirror exactly as `encode_smpl_lsf`/`decode_smpl_lsf` does for an
@@ -83,6 +103,8 @@ pub(crate) fn smpl_advance_lsf_state(st: &mut SmplLsfState, intf: usize, stage1:
         st.prev_filt_idx = -1;
         st.prev_lag = -1;
         st.prev_frac_lag = -1;
+        st.prev_lagblk = -1;
+        st.prev_lagidx = -1;
     }
     st.prev_stage1 = stage1;
     st.prev_match = m;
@@ -240,6 +262,8 @@ type SmplLsfState struct {
 	PrevLag        int32
 	PrevFracLag    int32
 	PrevLagSamples float32
+	PrevLagblk     int32
+	PrevLagidx     int32
 }
 
 func SmplAdvanceLsfState(st *SmplLsfState, intf int, stage1 int32)
@@ -270,19 +294,21 @@ func DecodeSmplLsf(
   cast to `int` only at the indexing site (`t.LsfStage2[int(stage1)][config][int(grid)]`).
 - `lsf_stage2` is a 5-deep nested slice (`[][][][][]uint16`); keep it as nested slices,
   not a flattened buffer, so the `[stage1][config][grid][coeff]` indexing reads
-  literally. TODO(human): confirm the JSON shape deserializes cleanly into the
-  5-level slice, and that `config` is always within range for the captured tables.
+  literally. Confirmed: the captured tables are `[2][2][17][16][7]`, so `config` (0/1)
+  is always in range. The protobuf message reconstructs this nesting via the
+  `LsfStage2S1→S2→S3→Cdf` levels.
 - Predictor-reset semantics are stateful and observable across internal frames: on a
-  no-match the four `prev_*` predictor fields are set to `-1`. Keep that mutation in
-  `DecodeSmplLsf` (and the mirrored `SmplAdvanceLsfState`) exactly where the reference
-  does it.
-- The JSON has extra fields (`gain_tab_*`, `gain_main`, `gain_delta`) that are
-  intentionally not deserialized here; Go's `encoding/json` ignores unknown keys by
-  default, so no struct tag is needed to skip them.
-- Tables load once and are shared immutably: `sync.OnceLock` maps to a `sync.Once`
-  (or eager package-level init). The vector test constructs the decoder over
-  `frame[1:]` (the body after the TOC byte), so the Go decode entry point should accept
-  the body slice the same way.
+  no-match `DecodeSmplLsf` sets the **four** `prev_*` predictor fields to `-1`;
+  `SmplAdvanceLsfState` (the encoder mirror) resets **six** (also `prev_lagblk`/
+  `prev_lagidx`). Keep that asymmetry exactly where the reference does it.
+- The KAT JSON (`smpl_tables.json`) has extra fields (`gain_tab_*`, `gain_main`,
+  `gain_delta`) that are intentionally not used here; Go's `encoding/json` ignores
+  unknown keys by default, so no struct tag is needed to skip them.
+- Tables load once and are shared immutably: `sync.OnceLock` maps to a `sync.Once`.
+  The Go loader inflates + `proto.Unmarshal`s `mlow/smpl_tables.bin` (package-root
+  production blob) and narrows u32 CDFs back to u16. The vector test constructs the
+  decoder over `frame[1:]` (the body after the TOC byte), so the Go decode entry point
+  accepts the body slice the same way.
 - `decode_smpl_lsf` returns the index set by value; a Go struct return is the natural
   fit. The `log::trace!` call is diagnostic only and need not be ported.
 ```
