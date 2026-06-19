@@ -7,6 +7,23 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### reference sync — local checkout to `oxidezap/whatsapp-rust-private`@`674e851`
+- Converted the local Rust reference into a real git checkout of
+  `oxidezap/whatsapp-rust-private` (branch `feat/voip-media-stack`) and reset to the
+  tip `674e851` (== our SOT pin; the public-repo permalinks are unchanged — commits
+  cherry-pick onto `oxidezap/whatsapp-rust`).
+- Verified every datasheet's embedded verbatim against the current tree. Result:
+  **all current except `mlow-encoder`**. The supposedly-stale `pitch`/`synth`/
+  `noise`/`decoder` and `call`/`relay`/`session` are fully current — their sources
+  just span multiple files (and the orchestration ones live in the tokio `src/`
+  crate). All built-module datasheets (toc, rangecoder, mem, lpc) are current.
+- `mlow-encoder` (#16, unbuilt): ~208 verbatim lines diverged because the encoder
+  source was **reorganized** — old combined `analysis.rs` split into `analysis.rs`
+  + `smpl_pitch_enc.rs`, and the pitch estimator changed (the known ~0.03
+  divergence). Faithful refresh = restructuring to the new file layout, deferred to
+  when module #16 is built (local reference is now current, so it ingests correctly
+  then).
+
 ### reference sync (patch `d441e5fa…current`)
 - Applied the upstream `wacore/src/voip/mlow/*.rs` source changes to the local
   reference. Net effect on **built** modules: none functional.
