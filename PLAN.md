@@ -40,25 +40,30 @@ Build a calling library that an enterprise can depend on:
 
 ## The model: spec, reference, derivative
 
-Three layers, kept distinct:
+You need no prior knowledge of this project to work from this plan. Three things,
+kept distinct:
 
-- **wacrg** is the **abstract protocol spec** — think of it as the RFC. It is the
-  agreed, implementation-independent description and becomes the source of future
-  updates. (`/Users/purpshell/Documents/Programming/wacrg/docs/`.)
-- **The reference implementation** is an existing, validated build of that RFC
-  (KAT-pinned, known to work). Its source and its `testdata/*.json` vectors are
-  the ground truth a datasheet ingests **verbatim**. The reference is read into
-  datasheets; it is **never named in meowcaller's code**.
-- **meowcaller** is a clean-room Go **flavor** of the same RFC — a derivative,
-  independent implementation. As we build it we distil the agreed spec into wacrg.
+- **The spec.** An abstract, implementation-independent description of the
+  protocol — think of it as the RFC. It lives in a separate documentation repo
+  (called *wacrg*). A datasheet may link to it for background, but a datasheet is
+  self-contained for implementation; you do not need the spec repo to build a
+  module.
+- **The reference.** An existing, validated implementation of that protocol (in
+  Rust), with checked-in **test vectors** that pin its behavior byte-for-byte. Its
+  source and its vectors are the ground truth. A datasheet contains the relevant
+  reference source **verbatim** so you read the real code, never a paraphrase.
+- **meowcaller (this repo).** A clean-room, independent **Go** implementation of
+  the same protocol. It is its own program: the reference library is **never
+  named, imported, or alluded to in meowcaller's Go code**.
 
-A **datasheet** (`datasheets/<module>.md`) is the bridge: it carries the reference
-source **verbatim and in full** (no agent summary, no lossy abbreviation) and
-states **how the behavior must be realized in Go**. The implementing agent reads
-the real source, not a paraphrase, then writes clean Go.
+A **datasheet** (`datasheets/<module>.md`) is the only thing you read to build a
+module. It contains exactly three parts: the **reference source verbatim**, the
+**Go envelope** (signatures, no bodies), and **implementation suggestions**. The
+verbatim source is authoritative; the suggestions are guidance, not proof. There
+is no behavioral summary to drift from — you implement from the real source.
 
-Do **not** port from the earlier `dublin`/`meowmeow` calling code. It is the
-unvalidated prior attempt and is out of scope as a source.
+Do **not** copy from any earlier, unvalidated Go attempt at this protocol; the
+validated reference and its vectors are the only source.
 
 ---
 

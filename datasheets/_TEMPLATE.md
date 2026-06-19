@@ -1,55 +1,40 @@
-<!-- Datasheet template. Copy to datasheets/<module>.md. A datasheet carries the
-     reference source VERBATIM (full context, no summary) and explains how the
-     behavior is realized in Go. The Go implementation never names the reference. -->
+<!-- Datasheet = three things only: the reference source VERBATIM, the Go envelope
+     (signatures, no bodies), and implementation suggestions. No behavioral summary,
+     no implementation. The verbatim source is the only authoritative content. -->
 
 # Datasheet: `<package>/<module>`
 
-**Status:** planned | scaffolded | implemented | verified
-**Registry #:** NN · **Depends on:** `<modules>` · **Depended on by:** `<modules>`
-**Abstract spec (wacrg):** `<wacrg docs/... path or URL>`
+One line: what this module is and where it sits in the call stack (signaling /
+keying / transport / media).
 
-## What this module does
+**Validation vector:** `<name>.json` — the test vector this module must match.
+Copy it verbatim from the reference's test data into `<package>/testdata/`.
 
-One or two sentences, in plain terms.
+## Reference source (verbatim — authoritative)
 
-## Reference implementation (verbatim)
-
-The reference source for this behavior, pasted **as-is and in full** — this is the
-ground truth, not a paraphrase. Do not abbreviate it.
+The reference implementation of this behavior, pasted **exactly as it is**. Do not
+paraphrase, summarize, reformat, or "clean up" a single line. This block is the
+ground truth; everything else on this page is secondary to it.
 
 ```rust
-// <file>.rs — pasted verbatim
+// pasted verbatim, in full
 ```
 
-(Paste the test/vectors block too when it clarifies the contract.)
+## Go envelope (signatures only)
 
-## Go implementation
-
-How this must be built in Go — concretely, in Go terms. Not assumptions about the
-reference; the Go target.
-
-- **Package / file:** `<pkg>/<file>.go`
-- **Public API (signatures only):**
+The corresponding Go declarations — exported types and function **signatures with
+no bodies**. This is the surface to implement; it is not the implementation.
 
 ```go
-// clean Go — NEVER names or alludes to the reference library
+// types + func signatures only — no logic
 ```
 
-- **Behavior in Go:** the algorithm/format restated for a Go implementer (types,
-  integer widths, slices vs arrays, error handling, allocation, endianness). Call
-  out where Go idiom differs from the reference (e.g. `[]byte` vs `&[u8]`,
-  explicit error returns vs panics).
+## Implementation suggestions (guidance, not authoritative)
 
-## Validation (KAT)
+Non-binding notes for whoever writes the bodies. Suggestions, not proofs — the
+verbatim source above governs. Useful kinds of note: Go type/width mapping
+(e.g. `i32` → `int`), slice vs array, endianness, error-return vs panic, allocation
+or buffering choices, and any spot that needs a human decision (mark it
+`TODO(human)`).
 
-- **Vector:** the `testdata/*.json` file (copied verbatim into `<pkg>/testdata/`)
-  and exactly what it covers.
-- **Test:** the Go test name + `go test` command.
-- **Done when:** the precise pass condition.
-
-## Open decisions
-
-`TODO(human)` items: choices left to the reviewer, source ambiguities, and any
-behavior not pinned by a vector. Each becomes a conversation; when it resolves, a
-decision artifact is written to wacrg (on direction) and may be linked from the Go
-file by URL.
+- ...

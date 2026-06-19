@@ -35,9 +35,10 @@ the working protocol. It is binding.
 ## The build loop (per module)
 
 ```
-1. READ      datasheets/<module>.md — it embeds the reference source VERBATIM
-             (the real ground truth, not a summary) and the Go target. Read the
-             linked wacrg page for the abstract spec.
+1. READ      datasheets/<module>.md — three parts: the reference source VERBATIM
+             (the authoritative ground truth), the Go envelope (signatures), and
+             implementation suggestions. Implement from the verbatim source; the
+             suggestions are guidance, not proof.
 2. SCAFFOLD  create the package file: types, exported signatures, doc comments,
              the KAT test wired to the (copied) vector — but function bodies are
              `// TODO` stubs that state the open question.  → COMMIT, PAUSE.

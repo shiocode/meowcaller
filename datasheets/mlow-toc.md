@@ -1,16 +1,13 @@
 # Datasheet: `mlow/toc`
 
-**Status:** planned (recovered + KAT-proven; ready to scaffold)
-**Registry #:** 02 · **Depends on:** none · **Depended on by:** `mlow/decoder`, `rtp` (routing)
-**Abstract spec (wacrg):** `docs/codec/mlow/decode-pipeline.md` (§TOC routing)
+Parses the first byte of a media frame to decide how to decode it and whether it
+is a standard-Opus frame to route elsewhere. Media layer; every inbound frame
+starts here.
 
-## What this module does
+**Validation vector:** `toc_vectors.json` (256 entries, one per byte value). Copy
+it verbatim into `mlow/testdata/`.
 
-Parses the first byte (the "smpl TOC") of a bare MLow frame to learn how to decode
-the rest, and routes standard-Opus frames away from the MLow path. Every inbound
-media frame starts here.
-
-## Reference implementation (verbatim)
+## Reference source (verbatim — authoritative)
 
 ```rust
 //! MLow "smpl_toc" — the first byte of a bare MLow frame (WASM func 3544). The smpl TOC is only
@@ -82,26 +79,42 @@ pub(crate) fn parse_mlow_toc(b: u8) -> MlowToc {
 }
 ```
 
-Test contract (verbatim, abridged to the assertions): exhaustive over all 256 byte
-values against `testdata/toc_vectors.json`, asserting every field
-(`std, sid, vad, sr, ms, voiced, active, f2, f0`).
+Test (verbatim): exhaustive over all 256 byte values against
+`testdata/toc_vectors.json`, asserting every field (`std, sid, vad, sr, ms, voiced,
+active, f2, f0`).
 
-## Go implementation
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
 
-- **Package / file:** `mlow/toc.go`
-- **Public API (signatures only):**
+    #[test]
+    fn toc_matches_go_all_256() {
+        let recs: Value =
+            serde_json::from_str(include_str!("testdata/toc_vectors.json")).expect("toc_vectors");
+        let arr = recs.as_array().unwrap();
+        assert_eq!(arr.len(), 256);
+        for rec in arr {
+            let b = rec["b"].as_u64().unwrap() as u8;
+            let t = parse_mlow_toc(b);
+            assert_eq!(t.std_opus, rec["std"].as_bool().unwrap(), "std b=0x{b:02x}");
+            // ... asserts every field: sid, vad, sr, ms, voiced, active, f2, f0
+        }
+    }
+}
+```
+
+## Go envelope (signatures only)
 
 ```go
 package mlow
 
-// SmplTOC is the decoded smpl TOC. When StdOpus is true, the remaining fields are
-// unused and the frame is a standard Opus/CELT packet (route to a stock Opus
-// decoder, not the MLow path).
 type SmplTOC struct {
 	StdOpus    bool
 	SID        bool
 	VAD        bool
-	SampleRate int // Hz: 16000 or 32000
+	SampleRate int
 	FrameMs    int
 	Voiced     bool
 	Active     bool
@@ -112,31 +125,11 @@ type SmplTOC struct {
 func ParseSmplTOC(b byte) SmplTOC
 ```
 
-- **Behavior in Go:**
-  - `(b & 0xC0) == 0xC0` → standard-Opus branch: `StdOpus=true`, `SampleRate=16000`,
-    `FrameMs=standardOpusFrameMs(b)`, all other fields zero-value.
-  - `standardOpusFrameMs`: `config := b >> 3`; `config<12` → `[]int{10,20,40,60}[config&3]`;
-    `config<16` → `[]int{10,20}[(config-12)&1]`; else `switch config&3 {0→3,1→5,2→10,_→20}`.
-  - smpl branch: `SID = b>>7 != 0`, `VAD = (b>>6)&1 != 0`,
-    `SampleRate = 32000 if b&0x20 != 0 else 16000`,
-    `FrameMs = []int{10,20,60,120}[(b>>3)&3]`, `bit1 = (b>>1)&1 != 0`,
-    `Voiced = VAD && bit1`, `Active = VAD || bit1`, `Flag2 = (b>>2)&1 != 0`,
-    `Flag0 = b&1 != 0`.
-  - Go-vs-reference notes: the reference's `i32` fields become Go `int`; the
-    function is pure (no receiver, no error). Index slices are fine — every index
-    is masked to its valid range, so no bounds risk. No reference library is named
-    anywhere in the Go file.
+## Implementation suggestions (guidance, not authoritative)
 
-## Validation (KAT)
-
-- **Vector:** `mlow/testdata/toc_vectors.json` — 256 entries, one per byte value,
-  each with `b, std, sid, vad, sr, ms, voiced, active, f2, f0`. Copy it verbatim
-  from the reference's `testdata/toc_vectors.json`.
-- **Test:** `go test ./mlow -run TestParseSmplTOCAgainstKAT`.
-- **Done when:** all 256 entries match exactly. (This port has been proven to pass
-  256/256.)
-
-## Open decisions
-
-- None outstanding — the full byte space is covered by the KAT, so there is no
-  unobserved input. Safe first module.
+- `i32` fields → Go `int`. Pure function, no receiver, no error return.
+- Every array index in the reference is masked to its valid range, so plain slice
+  indexing is safe (no bounds checks needed).
+- Sample rate is `16000`/`32000` (Hz); frame duration is in ms.
+- KAT covers the entire 256-value input space, so once it is green there is no
+  unobserved input — a safe first module to land.
