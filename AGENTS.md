@@ -51,8 +51,12 @@ SFrame, WARP, …)? See [`GLOSSARY.md`](GLOSSARY.md).
              function at a time.
 4. IMPLEMENT the approved function(s) only, as clean Go that never names the
              reference. Keep the KAT test running.  → COMMIT per fn, PAUSE.
-5. VERIFY    when the module's body is complete, its KAT must pass.
-             Update the datasheet status and CHANGELOG.  → COMMIT, PAUSE.
+5. VERIFY    when the module's body is complete, its KAT must pass. Then run
+             `git diff <scaffold-commit>..<impl-commit>` and confirm the actual
+             change matches what you told the human you changed — same functions,
+             same approach, no silent extras. If the diff and the narration
+             disagree, the narration was wrong: say so and reconcile before
+             moving on. Update the datasheet status and CHANGELOG.  → COMMIT, PAUSE.
 ```
 
 If the datasheet for the module does not exist yet, write it first (embed the
