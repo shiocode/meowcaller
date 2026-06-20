@@ -7,6 +7,21 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### mlow/celpdec — CELP synthesis: excitation verified, full output e2e (reference `ed12f359a086b28e807ba236f0977af1000859fe`)
+- Implemented the decoder-side C-float CELP synthesis (`CelpDecState.SynthFrame` +
+  `lpcInterpol`, `acbDequant`/`acbSynthesize`, `pitchSharp`, `synLTPBasis`,
+  `celpDecode`, `filtAR16`, `fcbGains`) and `CelpDecParams`, ported 1:1 from
+  `smpl_celpdec.rs`. Transcribed the small ACB-gain codebooks (`cbAcbgains{HR,LR}Q14`)
+  as a prerequisite. Reuses `SmplNLSF2A`, the noise generator, and the HP postfilter.
+- KAT `TestExcPre` drives the full decode chain (LSF→pulses→pitch/gains→reconstruct→
+  SynthFrame) and validates the deterministic pre-noise excitation against the C
+  `exc_pre` dump per subframe: unvoiced 752/0, voiced 292/0, worst 1.86e-9. The noise
+  and HP-postfilter stages SynthFrame composes are each KAT-verified in their modules;
+  the full combined PCM is validated end-to-end by the decoder. CodeRabbit: 0 findings.
+- Moved the CELP types out of synth.go into `celpdec.go`. `inbound_capture_frames.json`
+  + `exc_pre_lags.json` copied into testdata.
+
+
 ### mlow/noise — gennoise core KAT-verified (reference `ed12f359a086b28e807ba236f0977af1000859fe`)
 - Implemented the CELP noise-generator core 1:1 from `smpl_gennoise.rs`:
   `SmplGetNormalizedBitrate`, `SmplDecodeResnrg`, `NewNoiseGenerator`, and

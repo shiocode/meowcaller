@@ -579,52 +579,8 @@ func SynthInternalFrame(
 	return out, nlsf
 }
 
-// --- C-float-domain CELP synthesis (smpl_core_decoder.c) ---
-
-// CelpDecParams holds the per-frame CELP decode parameters.
-type CelpDecParams struct {
-	Voiced       bool
-	SfPulses     [4]int32
-	FcbgIdx      [4]int32
-	NrgresDbqQ14 [4]int32
-	AcbgIdx      [4]int32
-	BlockLags    [8]float32 // per-40-block pitch lag (codec units), 0 for unvoiced
-	TotalPulses  int32
-}
-
-// CelpDecState is the cross-frame CELP decoder state (noise generator, ACB state,
-// LPC synthesis memory, prev LSF, HP postfilter state).
-type CelpDecState struct{}
-
-// NewCelpDecState allocates a zeroed CELP decoder state.
-func NewCelpDecState() *CelpDecState {
-	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/smpl_celpdec.rs#L337-L349
-	// TODO
-	// agent suggestion: zero-init the ACB/LPC/noise/postfilter state to the reference
-	//   default lengths.
-	// human input:
-	panic("mlow: NewCelpDecState not yet implemented (scaffold)")
-}
-
-// SynthFrame synthesizes one frame in the C-float CELP domain, writing PCM to out.
-func (s *CelpDecState) SynthFrame(
-	nlsf []float32,
-	lsfInterpolIdx int,
-	pulses []int32,
-	params *CelpDecParams,
-	lowRate bool,
-	frameLength16 int32,
-	out []float32,
-) {
-	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/smpl_celpdec.rs#L372-L488
-	// TODO
-	// agent suggestion: port CelpDecState::synth_frame — LSF interpolation, per-
-	//   subframe ACB(pitch)+FCB(pulses)+noise excitation with gains, LPC synthesis,
-	//   then the HP postfilter (always run on this path). Reaches into noise,
-	//   postfilter, and the ACB gain tables.
-	// human input:
-	panic("mlow: CelpDecState.SynthFrame not yet implemented (scaffold)")
-}
+// (The C-float CELP synthesis — CelpDecParams / CelpDecState / SynthFrame — lives in
+// celpdec.go.)
 
 // --- unvoiced residual-energy quantizer (smpl_quant_nrg_res.c) ---
 
