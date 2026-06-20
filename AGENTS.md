@@ -79,6 +79,22 @@ step regardless.
              moving on. Update the datasheet status and CHANGELOG.  → COMMIT, PAUSE.
 ```
 
+### Prerequisite KATs (gating + the pre-commit check)
+
+A KAT cannot pass while a function it transitively exercises is still a stub (a
+scaffolded prerequisite, per directive #5) or a `// NOT VALIDATED:` body. Such a KAT
+must be **skipped, not left red**: `t.Skip("blocked: <prerequisite/module> is a stub;
+enable when implemented")`. Flag it; never fake a pass and never commit a knowingly
+red suite.
+
+**Run a prerequisite-validation check before every commit.** Walk every skipped KAT
+and ask: *are all the prerequisites it depends on now implemented (real, non-stub
+bodies)?* If yes, **enable that KAT** (remove the `t.Skip`) — it must now pass — and
+**delete the `// NOT VALIDATED:` markers** on the functions it now covers. Implementing
+a module thus re-activates the downstream KATs it unblocks; leaving a now-satisfiable
+KAT skipped, or a now-covered marker in place, is a VERIFY failure. State in the chat
+which KATs you enabled (or why each still-skipped one remains blocked) at each commit.
+
 If the datasheet for the module does not exist yet, write it first (embed the
 reference source verbatim + the Go target, per `datasheets/_TEMPLATE.md`), get it
 reviewed, and only then scaffold. Datasheets are written one module at a time.
