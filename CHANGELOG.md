@@ -7,6 +7,18 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### tooling — `mlowtest` CLI + file test script
+- `cmd/mlowtest`: `encode` (raw s16le mono 16 kHz → MLow `.bin`) and `decode`
+  (`.bin` → WAV, or `-raw` s16le). The `.bin` container is `"MLW1"` + per-frame
+  uint16 length-prefixed MLow frames.
+- `scripts/mlow_file_test.sh`: `enc <audio> <out.bin>`, `dec <in.bin> <out.wav>`,
+  `roundtrip <audio> <out.wav>` — ffmpeg decodes any input (mp3/m4a/wav/...) to
+  16 kHz mono PCM, then this repo's `cmd/mlowtest` encodes/decodes. Self-contained
+  (Go only). The Rust build (whatsapp-rust-voip) ships an identical script over its
+  own binary; the two interoperate **by file** — a `.bin` from one decodes with the
+  other — without either codebase referencing the other. Verified: same `.bin`
+  decoded by Go vs Rust → corr 1.000000.
+
 ### mlow/encoder — module #16 classifier + entropy coder KAT-verified (reference `ed12f359a086b28e807ba236f0977af1000859fe`)
 - Ported the voiced/unvoiced classifier 1:1 from `smpl_signal_mode.rs`:
   `SmplGetSignalMode` (five voicing strengths — pitch correlation, VAD, spectral
