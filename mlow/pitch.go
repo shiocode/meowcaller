@@ -213,13 +213,12 @@ type PitchEstState struct {
 	PrevLagidx    int32
 }
 
-// ResetCond clears the cross-frame lag-block predictor (smpl_pitch_reset_cond).
+// ResetCond clears the cross-frame lag-block predictor (smpl_pitch_reset_cond):
+// called after the last frame of a packet and after any unvoiced frame.
 func (s *PitchEstState) ResetCond() {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/smpl_pitch_enc.rs#L337-L341
-	// TODO
-	// agent suggestion: set PrevLagblk = -1 and PrevLagidx = -1 (the cond_coding=FALSE reset).
-	// human input:
-	panic("mlow: PitchEstState.ResetCond not yet implemented (scaffold)")
+	s.PrevLagblk = -1
+	s.PrevLagidx = -1
 }
 
 // PitchResult is the pitch estimator result for one internal frame.
@@ -277,6 +276,11 @@ func LoadPitchTables() *PitchTables {
 				Blocks  []int `json:"blocks"`
 				Seglens []int `json:"seglens"`
 			} `json:"blocksegs"`
+			Blocktracks []struct {
+				Track       []int   `json:"track"`
+				Meanblock   float32 `json:"meanblock"`
+				Trackdeltas float32 `json:"trackdeltas"`
+			} `json:"blocktracks"`
 			Blocksegs2idx      []int      `json:"blocksegs2idx"`
 			BlocksegIdxCmf     []uint32   `json:"blockseg_idx_CMF"`
 			DeltaLagCmfs       [][]uint32 `json:"delta_lag_CMFs"`
@@ -297,6 +301,13 @@ func LoadPitchTables() *PitchTables {
 		}
 		for _, s := range pb.Blocksegs {
 			t.Blocksegs = append(t.Blocksegs, pitchBlockSeg{Nblocks: s.Nblocks, Blocks: s.Blocks, Seglens: s.Seglens})
+		}
+		for _, bt := range pb.Blocktracks {
+			var tr [NumSubframes]int
+			for i := 0; i < NumSubframes && i < len(bt.Track); i++ {
+				tr[i] = bt.Track[i]
+			}
+			t.Blocktracks = append(t.Blocktracks, pitchBlockTrack{Track: tr, Meanblock: bt.Meanblock, Trackdeltas: bt.Trackdeltas})
 		}
 		pitchTables = t
 	})
@@ -375,15 +386,4 @@ func smplLagsPredictorAfter(tab *PitchTables, blocksegsIx int, laginds *[NumSubf
 	return lastBlk, laginds[NumSubframes-1]
 }
 
-// SmplPitch is the full pitch estimator. ltpBuf is the perceptually-weighted speech of
-// length MaxLTPBufLen; f2 is the LPC power spectrum; codedAsActiveVoice gates the search.
-func SmplPitch(st *PitchEstState, ltpBuf []float32, f2 *[SmplFLen]float32, codedAsActiveVoice bool) PitchResult {
-	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/smpl_pitch_enc.rs#L848-L1215
-	// TODO
-	// agent suggestion: faithful f32 port of smpl_pitch — autocorrelation upsample
-	//   search, get_maxi/get_maxi_k survivors (strict >, lowest-index-wins), the
-	//   harmonicity cache keyed on the rounded harmonic bin, and the block-track lag
-	//   selection. NOTE: encoder soft-divergence (~0.03 vs C); not a byte-exact target.
-	// human input:
-	panic("mlow: SmplPitch not yet implemented (scaffold)")
-}
+// SmplPitch (the full multi-stage estimator) is implemented in pitch_enc.go.

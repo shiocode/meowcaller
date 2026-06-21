@@ -43,6 +43,14 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   (`BitrateController` — per-subframe pulse budget + importance). KATs: FFT
   round-trip, perc-model smoke (zero→0, DC→R[0]>0, A[0]=1), and the active-unvoiced
   pulse budget = 23/subframe matching the C dump. (Reuses the existing fft.go.)
+- **smpl_pitch_enc estimator ported + KAT-verified** (pitch_enc.go): the full
+  multi-stage `SmplPitch` — HP-filter + 2x downsample, stage-1 autocorrelation,
+  coarse upsample, block-track survivor search (`get_maxi_k`), full-res per-block
+  refinement, fractional upsample, and the rate/prev-lag/spectral-harmonicity
+  survivor biases. `LoadPitchTables` now also parses `blocktracks`; `ResetCond`
+  implemented. KAT `TestPitchEstimatorGroundTruth` (pitchio_ground_truth.json, 48
+  active frames): **exact** `laginds`/`blockseg_idx`, pitchcorr max_err 7e-07,
+  avg_lag exact, harm within 1.8e-07.
 
 ### mlow/decoder — module #15 KAT-verified (audible milestone) (reference `ed12f359a086b28e807ba236f0977af1000859fe`)
 - Implemented the top-level `MlowDecoder` 1:1 from `decoder.rs`: RED strip → TOC
