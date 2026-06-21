@@ -287,22 +287,26 @@ type LibsrtpSessionKeys struct {
 	AuthKey     [20]byte
 }
 
-func WaSfuKDF(label string, salt, ikm []byte, length int) []byte
+func DeriveHbhSrtpKeyUplink(hbhKey []byte) ([]byte, error)
 
-func DeriveHbhSrtpKeyUplink(hbhKey []byte) []byte
+func DeriveHbhSrtpKeyDownlink(hbhKey []byte) ([]byte, error)
 
-func DeriveHbhSrtpKeyDownlink(hbhKey []byte) []byte
+func KeyingFromHbhKeyUplink(hbhKey []byte) (SrtpKeyingMaterial, error)
 
-func KeyingFromHbhKeyUplink(hbhKey []byte) SrtpKeyingMaterial
+func KeyingFromHbhKeyDownlink(hbhKey []byte) (SrtpKeyingMaterial, error)
 
-func KeyingFromHbhKeyDownlink(hbhKey []byte) SrtpKeyingMaterial
-
-func ExpandLibsrtpSessionKeys(keying *SrtpKeyingMaterial) LibsrtpSessionKeys
+func ExpandLibsrtpSessionKeys(keying *SrtpKeyingMaterial) (LibsrtpSessionKeys, error)
 
 func BuildRtpICMNonce(ssrc uint32, packetIndex uint64) [16]byte
 
-func CryptRtpPayload(session *LibsrtpSessionKeys, ssrc uint32, packetIndex uint64, payload []byte) []byte
+func CryptRtpPayload(session *LibsrtpSessionKeys, ssrc uint32, packetIndex uint64, payload []byte) ([]byte, error)
 ```
+
+The `Option`/`expect` returns in the verbatim become Go `error` returns (no panics):
+the 30-byte length check yields `errBadHbhKeyLen`, and the AES key invariants bubble
+the `crypto/aes` error. The reference's `wa_sfu_kdf` is just HKDF-SHA256 with the
+literal label as `info`, so the port calls `util.HKDFSHA256` directly rather than
+adding a separate wrapper.
 
 ## Implementation suggestions (guidance, not authoritative)
 

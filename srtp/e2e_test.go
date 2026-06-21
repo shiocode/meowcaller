@@ -11,6 +11,7 @@ import (
 type kat struct {
 	Inputs struct {
 		CallKey string `json:"callKey"`
+		HbhKey  string `json:"hbhKey"`
 		SelfLid string `json:"selfLid"`
 		PeerLid string `json:"peerLid"`
 		SSRC    uint32 `json:"ssrc"`
