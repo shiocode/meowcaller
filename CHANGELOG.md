@@ -7,6 +7,26 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### rtp — module #22 KAT-verified (reference `41095d4e6ba4610e054e9ede3af1d5e88a83faee`)
+- New `rtp` package porting `rtp.rs` + `rtcp.rs`: the WhatsApp RTP header (16-byte
+  speech / 20-byte `0xdebe` DTX) encode/parse, the Opus payload classifiers
+  (`IsOpusDtxPayload`/`IsOpusMlowSpeechPayload`/`IsOpusPrimingPayload`/...), the
+  on-wire size estimator, the send-side sequencer (`RtpStream` with marker latch +
+  seq/timestamp wrap), and RTCP compact reports (208/209) + Sender Report (200).
+  Implemented over stdlib `encoding/binary`+`bytes` (no new deps). `Option` returns
+  map to `(val, bool)` classifications; the SR NTP fraction uses faithful `float64`
+  truncation (the KAT's `nowMs` lands on a whole second, so frac=0). The sequencer's
+  piggyback branch calls the scaffolded `srtp.AudioPiggybackExtensionFor` (lands with
+  #24; not on the rtp KAT path, `warpPiggyback=false`). KAT (`kats.json` rtp + rtcp,
+  synthetic — no PII) passes byte-exact across all eight cases. CodeRabbit: clean.
+  Adds an `rtp → srtp` package dep (no cycle — `warp.rs` doesn't import rtp).
+  **KAT-verified.**
+
+### srtp/warp — prerequisite scaffold (reference `41095d4e6ba4610e054e9ede3af1d5e88a83faee`)
+- Scaffolded `AudioPiggybackExtensionFor` + `WarpPiggybackStartPacket` in the `srtp`
+  package so #22 rtp compiles against the real warp surface (AGENTS.md directive #5).
+  Body is a TODO stub; lands with module #24. **scaffolded.**
+
 ### stun — module #21 KAT-verified (reference `41095d4e6ba4610e054e9ede3af1d5e88a83faee`)
 - New `stun` package: the RFC 5389 TLV encoder (`EncodeStunRequest` with HMAC-SHA1
   MESSAGE-INTEGRITY + CRC-32 FINGERPRINT), the WASM/APK allocate builders

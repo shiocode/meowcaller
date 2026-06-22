@@ -60,8 +60,6 @@ func u32ptr(v uint32) *uint32 { return &v }
 
 // TestEncodeHeadersMatchKAT checks the 16-byte speech and 20-byte DTX header encodings.
 func TestEncodeHeadersMatchKAT(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	k := loadKat(t)
 	speech := RtpHeader{Marker: true, PayloadType: 120, SequenceNumber: 1, Timestamp: 0, Ssrc: k.Inputs.SSRC}
 	if got := hex.EncodeToString(EncodeRtpHeader(&speech)); got != k.Rtp.SpeechHeader16 {
@@ -75,8 +73,6 @@ func TestEncodeHeadersMatchKAT(t *testing.T) {
 
 // TestParseRoundTripsFixedFields encodes then parses a header and compares the fixed fields.
 func TestParseRoundTripsFixedFields(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	h := RtpHeader{Marker: true, PayloadType: 120, SequenceNumber: 0x1234, Timestamp: 0xdeadbeef, Ssrc: 0x01020304}
 	b := EncodeRtpHeader(&h)
 	if n, ok := RtpHeaderByteLength(b); !ok || n != 16 {
@@ -90,8 +86,6 @@ func TestParseRoundTripsFixedFields(t *testing.T) {
 
 // TestEstimateWireBytesMatchKAT checks the on-wire size estimator for speech/DTX/priming.
 func TestEstimateWireBytesMatchKAT(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	k := loadKat(t)
 	payload := mustHex(t, k.Inputs.Payload)
 	if got := EstimateSrtpRtpWireBytes(payload); uint64(got) != k.Rtp.EstimateSpeech12 {
@@ -107,8 +101,6 @@ func TestEstimateWireBytesMatchKAT(t *testing.T) {
 
 // TestClassifiers exercises the DTX/priming/mlow/payload-type classifiers.
 func TestClassifiers(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	if !IsOpusDtxPayload([]byte{0x10}) || !IsOpusDtxPayload([]byte{0x90}) || IsOpusDtxPayload(nil) {
 		t.Error("dtx classification wrong")
 	}
@@ -125,8 +117,6 @@ func TestClassifiers(t *testing.T) {
 
 // TestStreamSequenceAndMarker exercises the sequencer's seq/timestamp/marker latch.
 func TestStreamSequenceAndMarker(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	s := NewRtpStream(0xabcd, 320, false)
 	p0 := s.NextPacket(OpusPrimingFrame2[:], false)
 	if p0.SequenceNumber != 1 || p0.Timestamp != 0 || p0.Marker {
@@ -151,8 +141,6 @@ func TestStreamSequenceAndMarker(t *testing.T) {
 
 // TestCompactReportsMatchKAT checks the 208/209 compact RTCP reports.
 func TestCompactReportsMatchKAT(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	k := loadKat(t)
 	r208 := BuildCompactRtcp208(k.Inputs.SSRC, k.Rtcp.RemoteSsrc)
 	if got := hex.EncodeToString(r208[:]); got != k.Rtcp.Compact208 {
@@ -166,8 +154,6 @@ func TestCompactReportsMatchKAT(t *testing.T) {
 
 // TestSenderReportMatchesKAT checks the 28-byte Sender Report.
 func TestSenderReportMatchesKAT(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	k := loadKat(t)
 	stats := RtcpSenderStats{PacketsSent: k.Rtcp.Stats.PacketsSent, OctetsSent: k.Rtcp.Stats.OctetsSent, RtpTimestamp: k.Rtcp.Stats.RtpTimestamp}
 	sr := BuildSenderReport(k.Inputs.SSRC, &stats, k.Rtcp.NowMs)
@@ -178,8 +164,6 @@ func TestSenderReportMatchesKAT(t *testing.T) {
 
 // TestRtcpClassification checks the RTCP/RTP discriminator.
 func TestRtcpClassification(t *testing.T) {
-	t.Skip("blocked: rtp bodies are stubs; enable when implemented")
-
 	k := loadKat(t)
 	sr := mustHex(t, k.Rtcp.SenderReport)
 	if !IsRtcpPacket(sr) {
