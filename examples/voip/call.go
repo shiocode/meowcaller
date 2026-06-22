@@ -207,6 +207,12 @@ func runCall(ctx context.Context, target string) error {
 	if self.IsEmpty() {
 		return errors.New("no own LID on this session")
 	}
+	// The offer's call-creator is the caller's phone-number JID (@s.whatsapp.net),
+	// not the LID — the server attributes/routes the call by the creator's PN.
+	creator := cli.Store.GetJID()
+	if creator.IsEmpty() {
+		return errors.New("no own phone-number JID on this session")
+	}
 	peerLID, err := resolvePeerLID(ctx, cli, target)
 	if err != nil {
 		return err
@@ -246,7 +252,7 @@ func runCall(ctx context.Context, target string) error {
 	offer := signaling.BuildOffer(&signaling.OfferParams{
 		CallID:       callID,
 		To:           peerLID,
-		CallCreator:  self,
+		CallCreator:  creator,
 		DeviceKeys:   deviceKeys,
 		PrivacyToken: privacyToken,
 		Capability:   signaling.CapabilityOffer,
@@ -501,9 +507,10 @@ func decryptInboundCallKey(ctx context.Context, cli *whatsmeow.Client, e *events
 	return key, nil
 }
 
-// newCallID returns a random 16-hex-char call/wrapper id.
+// newCallID returns a call/wrapper id in WhatsApp's shape: the two-char "00"
+// prefix followed by 15 random bytes (32 hex chars total).
 func newCallID() string {
-	var b [8]byte
+	var b [15]byte
 	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
+	return "00" + hex.EncodeToString(b[:])
 }
