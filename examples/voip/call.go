@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/purpshell/meowcaller/signaling"
@@ -193,31 +194,155 @@ func runCall(ctx context.Context, target string) error {
 		PrivacyToken: privacyToken,
 		Capability:   signaling.CapabilityOffer,
 	})
+	// Pre-seed the media coordinator with our generated callKey, then bring up media
+	// when the relay endpoint arrives (relaylatency/transport) after the peer accepts.
+	coord := newCoordinator(ctx, cli)
+	m := coord.entry(callID)
+	m.callKey = callKey[:]
+	m.selfLID = self.String()
+	m.peerLID = peerLID.String()
+	cli.AddEventHandler(func(evt any) {
+		switch e := evt.(type) {
+		case *events.CallRelayLatency:
+			coord.onRelay(e.CallID, e.Data)
+		case *events.CallTransport:
+			coord.onRelay(e.CallID, e.Data)
+		case *events.CallTerminate:
+			log.Printf("call %s terminated: %s", e.CallID, e.Reason)
+		}
+	})
+
 	if err := cli.DangerousInternals().SendNode(ctx, offer); err != nil {
 		return fmt.Errorf("send offer: %w", err)
 	}
-	log.Printf("📞 offer sent (call-id %s). Live media after accept is the loopback-proven MediaPipeline path over the relay.", callID)
+	log.Printf("📞 offer sent (call-id %s); media starts when the relay endpoint arrives. Ctrl+C to stop.", callID)
 	<-ctx.Done()
 	return nil
 }
 
-// runListen connects and prints incoming call signaling. With autoAccept, it
-// decrypts the offer's callKey and replies preaccept + accept.
+// callMedia tracks the per-call inputs needed to start media: the decrypted
+// callKey (from the offer) and the relay data (from the offer or a later
+// relaylatency/transport stanza). Media starts once both are present.
+type callMedia struct {
+	callKey []byte
+	relay   *relayData
+	selfLID string
+	peerLID string
+	started bool
+}
+
+// coordinator answers inbound offers and brings up the media loop once the relay
+// endpoint arrives.
+type coordinator struct {
+	ctx  context.Context
+	cli  *whatsmeow.Client
+	mu   sync.Mutex
+	cmap map[string]*callMedia
+}
+
+func newCoordinator(ctx context.Context, cli *whatsmeow.Client) *coordinator {
+	return &coordinator{ctx: ctx, cli: cli, cmap: map[string]*callMedia{}}
+}
+
+func (c *coordinator) entry(callID string) *callMedia {
+	if c.cmap[callID] == nil {
+		c.cmap[callID] = &callMedia{}
+	}
+	return c.cmap[callID]
+}
+
+// onOffer decrypts the callKey, answers preaccept + accept, and records relay data
+// if it rode along in the offer.
+func (c *coordinator) onOffer(e *events.CallOffer) {
+	callKey, err := decryptInboundCallKey(c.ctx, c.cli, e)
+	if err != nil {
+		log.Printf("decrypt callKey for %s: %v", e.CallID, err)
+		return
+	}
+	log.Printf("🔑 decrypted callKey (%d bytes) for %s", len(callKey), e.CallID)
+
+	rates := []string{"8000", "16000"}
+	pre := signaling.BuildPreaccept(e.CallID, e.From, e.CallCreator, newCallID(), rates)
+	if err := c.cli.DangerousInternals().SendNode(c.ctx, pre); err != nil {
+		log.Printf("send preaccept: %v", err)
+		return
+	}
+	accept := signaling.BuildAccept(&signaling.AcceptParams{
+		CallID: e.CallID, To: e.From, CallCreator: e.CallCreator,
+		AudioRates: rates, Capability: signaling.CapabilityOffer,
+	})
+	if err := c.cli.DangerousInternals().SendNode(c.ctx, accept); err != nil {
+		log.Printf("send accept: %v", err)
+		return
+	}
+	log.Printf("✅ accepted %s — bringing up media when the relay endpoint arrives", e.CallID)
+
+	peer := e.CallCreator
+	if peer.IsEmpty() {
+		peer = e.From
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.entry(e.CallID)
+	m.callKey = callKey
+	m.selfLID = c.cli.Store.GetLID().String()
+	m.peerLID = peer.String()
+	if r := findRelay(e.Data); r != nil {
+		m.relay = parseRelayData(r)
+	}
+	c.maybeStart(e.CallID, m)
+}
+
+// onRelay records relay data from a relaylatency/transport stanza.
+func (c *coordinator) onRelay(callID string, data *waBinary.Node) {
+	r := findRelay(data)
+	if r == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.entry(callID)
+	m.relay = parseRelayData(r)
+	c.maybeStart(callID, m)
+}
+
+// maybeStart launches the media loop once the callKey and relay endpoint are known.
+func (c *coordinator) maybeStart(callID string, m *callMedia) {
+	if m.started || m.callKey == nil || m.relay == nil {
+		return
+	}
+	m.started = true
+	log.Printf("▶ starting media for %s", callID)
+	go func() {
+		if err := runMedia(c.ctx, callID, m.callKey, m.selfLID, m.peerLID, m.relay); err != nil {
+			log.Printf("media for %s ended: %v", callID, err)
+		}
+	}()
+}
+
+// runListen connects and, with autoAccept, answers incoming calls and pipes media.
 func runListen(ctx context.Context, autoAccept bool) error {
 	cli, err := connectClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer cli.Disconnect()
+	coord := newCoordinator(ctx, cli)
 
 	cli.AddEventHandler(func(evt any) {
 		switch e := evt.(type) {
 		case *events.CallOffer:
 			log.Printf("📞 incoming call %s from %s (auto-accept=%v)", e.CallID, e.From, autoAccept)
 			if autoAccept {
-				if err := acceptCall(ctx, cli, e); err != nil {
-					log.Printf("auto-accept failed: %v", err)
-				}
+				coord.onOffer(e)
+			}
+		case *events.CallRelayLatency:
+			if autoAccept {
+				coord.onRelay(e.CallID, e.Data)
+			}
+		case *events.CallTransport:
+			if autoAccept {
+				coord.onRelay(e.CallID, e.Data)
 			}
 		case *events.CallTerminate:
 			log.Printf("call %s terminated: %s", e.CallID, e.Reason)
@@ -225,35 +350,6 @@ func runListen(ctx context.Context, autoAccept bool) error {
 	})
 	log.Printf("listening for calls (auto-accept=%v). Ctrl+C to stop.", autoAccept)
 	<-ctx.Done()
-	return nil
-}
-
-// acceptCall decrypts the inbound callKey and answers with preaccept + accept.
-func acceptCall(ctx context.Context, cli *whatsmeow.Client, e *events.CallOffer) error {
-	callKey, err := decryptInboundCallKey(ctx, cli, e)
-	if err != nil {
-		return fmt.Errorf("decrypt callKey: %w", err)
-	}
-	log.Printf("🔑 decrypted callKey (%d bytes) for call %s", len(callKey), e.CallID)
-
-	rates := []string{"8000", "16000"}
-	pre := signaling.BuildPreaccept(e.CallID, e.From, e.CallCreator, newCallID(), rates)
-	if err := cli.DangerousInternals().SendNode(ctx, pre); err != nil {
-		return fmt.Errorf("send preaccept: %w", err)
-	}
-	accept := signaling.BuildAccept(&signaling.AcceptParams{
-		CallID:      e.CallID,
-		To:          e.From,
-		CallCreator: e.CallCreator,
-		AudioRates:  rates,
-		Capability:  signaling.CapabilityOffer,
-	})
-	if err := cli.DangerousInternals().SendNode(ctx, accept); err != nil {
-		return fmt.Errorf("send accept: %w", err)
-	}
-	log.Printf("✅ accepted call %s with callKey. NOTE: the caller will send <terminate reason=\"setup_failed\"> ~seconds later "+
-		"unless we bring up relay media — connect the relay endpoint from the offer, STUN-allocate, and run the "+
-		"loopback-proven MediaPipeline. That live hop (relay.ConnectRelayMedia, NOT VALIDATED) is the remaining work.", e.CallID)
 	return nil
 }
 

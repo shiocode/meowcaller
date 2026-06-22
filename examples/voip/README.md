@@ -65,22 +65,31 @@ recv-side ROC tracker — all on real audio, no network.
 6. **Offer / answer** — `signaling.BuildOffer` (and `BuildPreaccept`/`BuildAccept`
    for answering) assemble the call-control stanzas with the load-bearing child order.
 
-## What's left for a live media call (the `setup_failed` hop)
+## Live media (wired, `NOT VALIDATED`)
 
-Both `call` and `autoaccept` complete signaling, keying, LID resolution, callKey
-enc/dec and the codec — but **after the offer is accepted, the caller sends
-`<terminate reason="setup_failed">` a few seconds later unless media starts
-flowing.** That last hop is the remaining wiring:
+After the offer is accepted, audio flows over the relay; `media.go` wires that hop
+end to end so the call no longer dies on `setup_failed`:
 
-1. Pull the relay endpoint + token from the offer / `<transport>` stanza.
-2. `relay.ConnectRelayMedia` (the pion DTLS/SCTP/DataChannel transport) + a STUN
-   Allocate (`stun.BuildWasmStunAllocateRequest`) to register the stream.
-3. Run the loopback-proven `MediaPipeline` (mic→encode→protect / unprotect→decode→
-   speaker) over the DataChannel.
+1. **Relay parse** — the `<relay>` node (a port of the reference `relay_parse`) is
+   found in the offer / `relaylatency` / `transport` stanza and parsed into its
+   endpoints, indexed tokens and `<key>` (the STUN MESSAGE-INTEGRITY key — the raw
+   `relay_key_ascii`, *not* a derived WARP key).
+2. **Connect + allocate** — `relay.ConnectRelayMedia` opens the pion
+   DTLS/SCTP/DataChannel transport to the chosen endpoint, then a STUN Allocate
+   (`stun.BuildWasmStunAllocateRequest`) registers the stream. A 1 Hz allocate+ping
+   keepalive keeps the relay from dropping us.
+3. **Media loop** — the loopback-proven `MediaPipeline`: mic → MLow → E2E-SRTP
+   protect → DataChannel, and DataChannel → classify → unprotect → MLow → speaker.
 
-The relay transport is `NOT VALIDATED` (live-relay only), and the STUN Allocate's
-integrity key uses the WARP auth key (`sframe.DeriveWarpAuthKey`, still a stub with
-no vector) — so this hop is wired up to but not through the relay yet.
+Both directions are wired: `call` pre-seeds its generated callKey and starts media
+when the relay arrives; `autoaccept` decrypts the inbound callKey, answers, and does
+the same.
+
+**`NOT VALIDATED`:** the pion relay transport (DTLS handshake to WhatsApp's relay)
+has no test vector and can only be exercised against a live relay — this is the one
+hop in the stack that hasn't been proven, so expect to debug it on a real call.
+Everything it feeds (codec, keying, framing, the `MediaPipeline`) is KAT-verified
+and proven by `loopback`.
 
 ## Notes
 
