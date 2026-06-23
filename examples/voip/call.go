@@ -232,6 +232,9 @@ func runCall(ctx context.Context, target string) error {
 		return fmt.Errorf("device discovery: %w", err)
 	}
 	log.Printf("peer has %d device(s): %v", len(devices), devices)
+	if len(devices) == 0 {
+		return fmt.Errorf("peer %s has no devices (unreachable / not on WhatsApp); the server would reject the offer with 404", peerLID)
+	}
 
 	var callKey [32]byte
 	if _, err := rand.Read(callKey[:]); err != nil {
@@ -433,6 +436,12 @@ func (c *coordinator) onRelay(callID string, data *waBinary.Node) {
 // allocation arrives here (whatsmeow otherwise drops the ack), which is what lets
 // the caller bring up media.
 func (c *coordinator) onCallAck(ack *waBinary.Node) {
+	// An error ack (e.g. 404 unreachable, 439 bad offer) carries no usable relay;
+	// don't try to start media on it.
+	if errCode := ack.AttrGetter().String("error"); errCode != "" {
+		log.Printf("⛔ call offer rejected by server: error %s", errCode)
+		return
+	}
 	r := findRelay(ack)
 	if r == nil {
 		return
