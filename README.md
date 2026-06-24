@@ -32,7 +32,7 @@ Things that are not yet implemented:
 ## Sponsoring and contribution
 You may contribute to the maintenance of this library by sponsoring its maintainers on [GitHub](https://purpshell.dev/sponsor).
 
-You may also submit pull requests and issues where relevant, given you follow the Code of Conduct of contribution.
+You may also submit pull requests and issues where relevant, given you follow the contributor [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
