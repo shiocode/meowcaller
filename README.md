@@ -1,25 +1,40 @@
 # meowcaller
+[![Go Reference](https://pkg.go.dev/badge/github.com/purpshell/meowcaller.svg)](https://pkg.go.dev/github.com/purpshell/meowcaller)
 
-A clean-room, **pure-Go** WhatsApp 1:1 calling library — signaling, keying,
-transport, and the MLow audio codec. It is an independent Go **flavor** of an
-existing, validated implementation of the same protocol, built module by module
-and verified byte-exact against shared known-answer vectors (KATs).
+meowcaller is a Go library for the WhatsApp Web VoIP stack. It is 100% pure GO without any CGO dependencies and little to no dependencies of its own. It includes the proprietary audio codec MLOW written and validated completely in GO.
 
-The abstract protocol spec (the "RFC") lives in **wacrg**. This repository is the
-Go implementation; its build reference is a set of **datasheets** that carry the
-reference source verbatim and state how each behavior must be realized in Go. The
-Go code itself reads as original Go and never names any reference library.
+## Discussion
+Matrix room: [#meowcaller:matrix.com](https://matrix.to/#/#meowcaller:matrix.com).
 
-No WASM bridge. No cgo for the protocol. No inherited code from earlier attempts.
+Discord channel: #meowcaller in the [WhiskeySockets Discord server](https://whiskey.so/discord).
 
-**Start here:**
+You can find the underlying spec in the [WhatsApp Calls Research Group](https://wacrg.org). We are under process of standardizing the spec and moving away from whatsapp-rust source of truth comments.
 
-- [`PLAN.md`](PLAN.md) — the engineering plan and the model (spec / reference /
-  derivative).
-- [`AGENTS.md`](AGENTS.md) — how it gets built: human-audited, module by module,
-  agents scaffold and explain in conversation, never run ahead.
-- [`MODULES.md`](MODULES.md) — the module registry and build order.
-- [`datasheets/`](datasheets/) — per-module datasheets (the exemplar is
-  [`mlow-toc.md`](datasheets/mlow-toc.md)).
+## Usage
+The [godoc](https://pkg.go.dev/github.com/purpshell/meowcaller) includes docs for all methods.
 
-Status: planning. Nothing implemented yet. Scope: 1:1 calls.
+There's a range of examples in the [examples](/examples/) directory.
+
+## Features
+
+Core VoIP features are present:
+
+- Outbound calls
+- Inbound calls
+- Audio calling
+
+Things that are not yet implemented:
+
+- Group calls (WIP)
+- Video calls (WIP)
+- Call signalling features (raise hand, lobby, reactions)
+
+## Sponsoring and contribution
+You may contribute to the maintenance of this library by sponsoring its maintainers on [GitHub](https://purpshell.dev/sponsor).
+
+You may also submit pull requests and issues where relevant, given you follow the Code of Conduct of contribution.
+
+## License
+
+This repository follows the MIT license, as stated in the [LICENSE](/LICENSE) file
+
