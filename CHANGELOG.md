@@ -7,6 +7,17 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### session — opt-in sanitized zerolog diagnostics (field-on-type)
+- Established the repo-wide library logging convention on the root package
+  (`MediaPipeline`, `CallSession`): a `log zerolog.Logger` field set via an additive
+  `WithLogger(l)` functional option (`logging.go`), defaulting to `zerolog.Nop()` so
+  the library stays silent and zero-cost unless the top-level program wires a logger.
+  Added debug/trace at every boundary: session lifecycle + phase transitions (debug),
+  pipeline init + key-derivation failures (debug), and per-frame protect/unprotect
+  (trace). Logs are **sanitized** — only `ssrc`/`seq`/`roc`/byte-lengths/JIDs, never
+  key material, payload, or PCM. Constructors stay source-compatible (variadic opts);
+  KAT green, no behavior change.
+
 ### examples/voip — migrate CLI logging to structured zerolog (no emoji)
 - Replaced the stdlib `log`/`Printf` calls (and all decorative emoji) across
   `main.go`, `call.go`, `media.go`, `loopback.go` with structured **zerolog** per

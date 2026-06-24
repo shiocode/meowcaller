@@ -1,6 +1,7 @@
 package meowcaller
 
 import (
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 
 	"github.com/purpshell/meowcaller/rtp"
@@ -39,30 +40,37 @@ type CallSession struct {
 	Direction   CallDirection
 	IsVideo     bool
 	phase       CallPhase
+	log         zerolog.Logger
 }
 
 // NewOutgoingSession starts an outgoing call session in the Idle phase.
-func NewOutgoingSession(callID string, peerJID, callCreator types.JID) *CallSession {
+func NewOutgoingSession(callID string, peerJID, callCreator types.JID, opts ...Option) *CallSession {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/src/voip/session.rs#L45-L54
-	return &CallSession{
+	s := &CallSession{
 		CallID:      callID,
 		PeerJID:     peerJID,
 		CallCreator: callCreator,
 		Direction:   CallDirectionOutgoing,
 		phase:       CallPhaseIdle,
+		log:         resolveConfig(opts).log,
 	}
+	s.log.Debug().Str("call_id", callID).Str("peer_jid", peerJID.String()).Str("direction", "outgoing").Msg("call session created")
+	return s
 }
 
 // NewIncomingSession starts an incoming call session in the Ringing phase.
-func NewIncomingSession(callID string, peerJID, callCreator types.JID) *CallSession {
+func NewIncomingSession(callID string, peerJID, callCreator types.JID, opts ...Option) *CallSession {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/src/voip/session.rs#L56-L65
-	return &CallSession{
+	s := &CallSession{
 		CallID:      callID,
 		PeerJID:     peerJID,
 		CallCreator: callCreator,
 		Direction:   CallDirectionIncoming,
 		phase:       CallPhaseRinging,
+		log:         resolveConfig(opts).log,
 	}
+	s.log.Debug().Str("call_id", callID).Str("peer_jid", peerJID.String()).Str("direction", "incoming").Msg("call session created")
+	return s
 }
 
 // Phase returns the current lifecycle phase.
@@ -106,10 +114,34 @@ func (s *CallSession) TransitionTo(next CallPhase) bool {
 	default:
 		ok = false
 	}
+	prev := s.phase
 	if ok {
 		s.phase = next
+		s.log.Debug().Str("call_id", s.CallID).Str("from", phaseName(prev)).Str("to", phaseName(next)).Msg("call phase transition")
+	} else {
+		s.log.Debug().Str("call_id", s.CallID).Str("from", phaseName(prev)).Str("to", phaseName(next)).Msg("call phase transition rejected")
 	}
 	return ok
+}
+
+// phaseName gives a stable, log-friendly label for a call phase.
+func phaseName(p CallPhase) string {
+	switch p {
+	case CallPhaseIdle:
+		return "idle"
+	case CallPhaseCalling:
+		return "calling"
+	case CallPhaseRinging:
+		return "ringing"
+	case CallPhaseConnecting:
+		return "connecting"
+	case CallPhaseActive:
+		return "active"
+	case CallPhaseEnded:
+		return "ended"
+	default:
+		return "unknown"
+	}
 }
 
 // MediaPipeline composes the outbound (protect) and inbound (unprotect) E2E 1:1
@@ -121,25 +153,33 @@ type MediaPipeline struct {
 	stream       *rtp.RtpStream
 	sendRoc      srtp.RocTracker
 	recvRoc      srtp.RecvRocTracker
+	log          zerolog.Logger
 }
 
 // NewMediaPipeline derives both directions from the 32-byte callKey: send keys from
 // the self LID, recv keys from the peer LID (an interop-load-bearing convention).
-func NewMediaPipeline(callKey []byte, selfJID, peerJID string, ssrc, samplesPerPacket uint32) (*MediaPipeline, error) {
+func NewMediaPipeline(callKey []byte, selfJID, peerJID string, ssrc, samplesPerPacket uint32, opts ...Option) (*MediaPipeline, error) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/src/voip/session.rs#L118-L133
+	log := resolveConfig(opts).log
 	sendKeys, err := srtp.DeriveE2eKeys(callKey, rtp.FormatE2ESrtpParticipantID(selfJID))
 	if err != nil {
+		log.Debug().Err(err).Str("participant", "self").Msg("media pipeline: derive E2E keys failed")
 		return nil, err
 	}
 	recvKeys, err := srtp.DeriveE2eKeys(callKey, rtp.FormatE2ESrtpParticipantID(peerJID))
 	if err != nil {
+		log.Debug().Err(err).Str("participant", "peer").Msg("media pipeline: derive E2E keys failed")
 		return nil, err
 	}
+	log.Debug().Str("self_jid", selfJID).Str("peer_jid", peerJID).Uint32("ssrc", ssrc).
+		Uint32("samples_per_packet", samplesPerPacket).Int("warp_mi_tag_len", srtp.WarpMITagLen).
+		Msg("media pipeline initialized")
 	return &MediaPipeline{
 		sendKeys:     sendKeys,
 		recvKeys:     recvKeys,
 		warpMITagLen: srtp.WarpMITagLen,
 		stream:       rtp.NewRtpStream(ssrc, samplesPerPacket, false),
+		log:          log,
 	}, nil
 }
 
@@ -152,10 +192,14 @@ func (p *MediaPipeline) ProtectAudio(opusPayload []byte) ([]byte, error) {
 	packet := rtp.EncodeRtpHeader(&header)
 	encrypted, err := srtp.CryptPayload(&p.sendKeys, header.Ssrc, header.SequenceNumber, roc, opusPayload)
 	if err != nil {
+		p.log.Debug().Err(err).Uint32("ssrc", header.Ssrc).Uint16("seq", header.SequenceNumber).Uint32("roc", roc).Msg("protect: SRTP encrypt failed")
 		return nil, err
 	}
 	packet = append(packet, encrypted...)
-	return srtp.AppendWarpMITag(p.sendKeys.AuthKey[:], packet, roc, p.warpMITagLen), nil
+	out := srtp.AppendWarpMITag(p.sendKeys.AuthKey[:], packet, roc, p.warpMITagLen)
+	p.log.Trace().Uint32("ssrc", header.Ssrc).Uint16("seq", header.SequenceNumber).Uint32("roc", roc).
+		Int("opus_bytes", len(opusPayload)).Int("packet_bytes", len(out)).Msg("protected audio frame")
+	return out, nil
 }
 
 // UnprotectAudio strips the WARP MI tag (not verified), parses the header, and
@@ -164,21 +208,27 @@ func (p *MediaPipeline) ProtectAudio(opusPayload []byte) ([]byte, error) {
 func (p *MediaPipeline) UnprotectAudio(packet []byte) (rtp.RtpHeader, []byte, bool) {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/41095d4e6ba4610e054e9ede3af1d5e88a83faee/src/voip/session.rs#L155-L175
 	if len(packet) < 12+p.warpMITagLen {
+		p.log.Debug().Int("packet_bytes", len(packet)).Int("min_bytes", 12+p.warpMITagLen).Msg("unprotect: packet too short")
 		return rtp.RtpHeader{}, nil, false
 	}
 	withoutTag := packet[:len(packet)-p.warpMITagLen]
 	header, ok := rtp.ParseRtpHeader(withoutTag)
 	if !ok {
+		p.log.Debug().Int("packet_bytes", len(packet)).Msg("unprotect: malformed RTP header")
 		return rtp.RtpHeader{}, nil, false
 	}
 	headerLen, ok := rtp.RtpHeaderByteLength(withoutTag)
 	if !ok || len(withoutTag) <= headerLen {
+		p.log.Debug().Uint32("ssrc", header.Ssrc).Int("header_bytes", headerLen).Msg("unprotect: header length invalid or no payload")
 		return rtp.RtpHeader{}, nil, false
 	}
 	roc := p.recvRoc.GuessRoc(header.SequenceNumber)
 	plain, err := srtp.CryptPayload(&p.recvKeys, header.Ssrc, header.SequenceNumber, roc, withoutTag[headerLen:])
 	if err != nil {
+		p.log.Debug().Err(err).Uint32("ssrc", header.Ssrc).Uint16("seq", header.SequenceNumber).Uint32("roc", roc).Msg("unprotect: SRTP decrypt failed")
 		return rtp.RtpHeader{}, nil, false
 	}
+	p.log.Trace().Uint32("ssrc", header.Ssrc).Uint16("seq", header.SequenceNumber).Uint32("roc", roc).
+		Int("plain_bytes", len(plain)).Msg("unprotected audio frame")
 	return header, plain, true
 }
