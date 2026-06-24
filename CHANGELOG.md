@@ -7,6 +7,15 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### meowcaller — preaccept eagerly on inbound offer (preparation step)
+- `<preaccept>` is now sent the moment an inbound offer arrives (in `onOffer`),
+  independent of the later Answer/Reject decision — it is a preparation step that keeps
+  the offer alive and joins the relay election while the integrator decides (a call the
+  user goes on to decline has usually already been preaccepted). `Answer` now only
+  commits to the call (marks accept-pending → `<accept>` on `<mute_v2>`, starts media);
+  `Reject` declines after the preaccept already went out. Restores the original working
+  recipe (preaccept → relaylatency → wait-for-`mute_v2` → accept).
+
 ### mlow — move per-frame encode/decode logs from debug to trace
 - The routine per-frame encode/decode logs (`encode frame`/`encode frame: done`,
   `decode frame`/`decode active frame`, the per-frame "emitting silence" outcomes,

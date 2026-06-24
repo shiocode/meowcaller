@@ -208,9 +208,9 @@ func (e *engine) placeCall(ctx context.Context, target string) (*Call, error) {
 }
 
 // onOffer handles an inbound <offer> event: it decrypts the callKey, captures any relay
-// data carried in the offer, registers the Call in the Ringing phase, and fires the
-// OnIncomingCall listener. It does NOT preaccept — preaccept/accept are deferred to
-// Answer, so the integrator decides Answer vs Reject.
+// data, registers the Call in the Ringing phase, sends the <preaccept> eagerly (a
+// preparation step, independent of the later Answer/Reject), and fires the
+// OnIncomingCall listener. Only the <accept> is deferred to Answer.
 func (e *engine) onOffer(ev *events.CallOffer) {
 	// A "call ended" notification arrives offer-shaped, carrying is_call_ended/
 	// terminate_reason (e.g. accepted_elsewhere). It is not a live call — engaging it
@@ -248,28 +248,30 @@ func (e *engine) onOffer(ev *events.CallOffer) {
 	}
 	e.mu.Unlock()
 
+	// Preaccept eagerly: it is a preparation step, done independently of the later
+	// Answer/Reject decision. It keeps the offer alive and joins the relay election while
+	// the integrator decides — even a call the user goes on to decline has usually already
+	// been preaccepted.
+	if err := e.sendPreaccept(ev.CallID, ev.From, ev.CallCreator); err != nil {
+		e.c.log.Warn().Err(err).Str("call_id", ev.CallID).Msg("preaccept failed")
+	}
+
 	if fn := e.c.incomingCallHandler(); fn != nil {
 		fn(call)
 	}
 }
 
-// answer sends the deferred preaccept+accept for an inbound call and brings media up.
-// The preaccept goes out immediately; the accept is deferred until the caller's
-// <mute_v2> (onCallRaw fires it). Media comes up once callKey+relay are both known.
-func (e *engine) answer(c *Call) error {
-	m := e.lookup(c.id)
-	if m == nil {
-		return fmt.Errorf("meowcaller: unknown call %s", c.id)
-	}
-
-	// Preaccept: single rate 16000 + encopt + capability, NO metadata — built inline to
-	// match the captured WA-Web preaccept body exactly.
+// sendPreaccept sends the <preaccept> for an inbound call — a preparation step done
+// eagerly when the offer arrives (see onOffer), independent of the later Answer/Reject
+// decision. Single rate 16000 + encopt + capability, NO metadata — built inline to match
+// the captured WA-Web preaccept body exactly.
+func (e *engine) sendPreaccept(callID string, to, creator types.JID) error {
 	pre := waBinary.Node{
 		Tag:   "call",
-		Attrs: waBinary.Attrs{"to": m.from, "id": e.c.wa.DangerousInternals().GenerateRequestID()},
+		Attrs: waBinary.Attrs{"to": to, "id": e.c.wa.DangerousInternals().GenerateRequestID()},
 		Content: []waBinary.Node{{
 			Tag:   "preaccept",
-			Attrs: waBinary.Attrs{"call-id": c.id, "call-creator": m.creator},
+			Attrs: waBinary.Attrs{"call-id": callID, "call-creator": creator},
 			Content: []waBinary.Node{
 				{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
 				{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
@@ -280,8 +282,19 @@ func (e *engine) answer(c *Call) error {
 	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), pre); err != nil {
 		return fmt.Errorf("send preaccept: %w", err)
 	}
-	e.c.log.Info().Str("call_id", c.id).Msg("preaccepted; accept deferred until mute_v2")
+	e.c.log.Info().Str("call_id", callID).Msg("preaccepted (preparation; awaiting Answer/Reject)")
+	return nil
+}
 
+// answer accepts an inbound call: it marks the call to accept (the actual <accept> is
+// deferred until the caller's <mute_v2>, which onCallRaw fires) and brings media up. The
+// <preaccept> was already sent eagerly when the offer arrived, so Answer only commits to
+// the call. Media comes up once callKey+relay are both known.
+func (e *engine) answer(c *Call) error {
+	m := e.lookup(c.id)
+	if m == nil {
+		return fmt.Errorf("meowcaller: unknown call %s", c.id)
+	}
 	e.mu.Lock()
 	m.acceptPending = true
 	e.mu.Unlock()
