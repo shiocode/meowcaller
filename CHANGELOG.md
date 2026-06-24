@@ -7,6 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### docs — remove datasheets, PLAN/MODULES/GLOSSARY; prune coderabbit config
+- Removed the internal build-protocol docs: the `datasheets/` directory (30 files),
+  `PLAN.md`, `MODULES.md`, and `GLOSSARY.md`. Dropped the now-obsolete
+  `!datasheets/**` path filter (and its comment) from `.coderabbit.yaml`, keeping the
+  generated-protobuf exclusion. No code touched; build/tests unaffected.
+
 ### docs — codify code style + logging conventions in AGENTS.md
 - Added a binding **Code style and logging** section (and matching "what never
   happens here" bullets) to `AGENTS.md`: the style supplements (`any`, initialism
