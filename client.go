@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/purpshell/meowcaller/diag"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 )
@@ -16,9 +17,10 @@ import (
 //
 // The library never configures logging; pass WithLogger to surface its debug/trace.
 type Client struct {
-	wa  *whatsmeow.Client
-	log zerolog.Logger
-	eng *engine
+	wa   *whatsmeow.Client
+	log  zerolog.Logger
+	diag *diag.Recorder
+	eng  *engine
 
 	mu             sync.Mutex
 	onIncomingCall func(*Call)
@@ -28,7 +30,8 @@ type Client struct {
 // Construct it before the whatsmeow client connects so the low-level <ack>/<call>
 // interception is in place before the receive loop starts.
 func NewClient(wa *whatsmeow.Client, opts ...Option) *Client {
-	c := &Client{wa: wa, log: resolveConfig(opts).log}
+	cfg := resolveConfig(opts)
+	c := &Client{wa: wa, log: cfg.log, diag: cfg.diag}
 	c.eng = newEngine(c)
 	c.eng.install()
 	return c

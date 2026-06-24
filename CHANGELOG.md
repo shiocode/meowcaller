@@ -7,6 +7,17 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### diag — developer diagnostics recorder + WithDiagnostics client option
+- New `meowcaller/diag` package: a `Recorder` that writes exact, per-category call
+  diagnostics to per-stream JSONL files (`<dir>/<stream>.jsonl`). Stdlib-only,
+  thread-safe, nil-safe (every method no-ops on a nil `*Recorder`), lazy file open,
+  injects a `ts_ms`, and swallows write errors so diagnostics can never break a live
+  call. New additive `Client` option `WithDiagnostics(*diag.Recorder)` (config/Client
+  `diag` field) so the engine reaches it as `e.c.diag`. **Dev-only carve-out:** the
+  recorder may dump raw secrets/media (callKey, SRTP/RTP bytes, PCM) — it is opt-in
+  and off by default; the library's production zerolog logging stays sanitized.
+  Foundation only; CLI flag and engine emissions follow. build/vet/test green.
+
 ### meowcaller — accept only on the first mute_v2 (not on later mute-state changes)
 - The deferred `<accept>` is sent on the **first** `mute_v2` only (it arrives right
   after the relaylatency/transport). `onCallRaw` now gates on `acceptPending`: a later
