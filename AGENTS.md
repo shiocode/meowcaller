@@ -227,6 +227,90 @@ Do **not** narrate what the code plainly does, and do **not** use comments to
 explain *why* — say the why out loud. Clean code is the default; comments are the
 exception.
 
+## Code style and logging
+
+The house rules, derived from the Beeper Go Guidelines and Logging Standards. They
+are binding for every `.go` file in the repo.
+
+### Style
+
+Base guides: [Effective Go](https://go.dev/doc/effective_go) and
+[Go Code Review Comments](https://go.dev/wiki/CodeReviewComments). On top of them:
+
+- Use `any`, never `interface{}`.
+- Use consistent, canonical initialism casing in identifiers you add (ID, URL,
+  HTTP, RTP, RTCP, SRTP, SSRC, LID, JID, STUN, DTLS, SCTP, TOC, LSF, LPC, VAD,
+  PCM) — `participantID`, not `participantId`. (Whether to rename the existing
+  exported `Smpl*`/mixed-case surface is a separate, human-directed question; do
+  not churn it on your own.)
+- Prefer `var x T` over `x := T{}` for a zero value.
+- Indent the error flow: handle the error in the small block and keep the happy
+  path left-aligned; avoid needless nesting.
+- `snake_case` for log keys, `lowerCamelCase` for locals.
+
+### Errors over crashes
+
+This is a library: there is almost never an excuse to crash. Return an error and
+let the caller decide.
+
+- A function reachable from the public API on runtime or wire input **must never
+  panic** — return an error and abort.
+- `panic()` is reserved for a genuinely unrecoverable invariant: corrupt
+  compiled-in constant data (an `//go:embed` ROM blob that fails to
+  decompress/parse) — a build defect, the `regexp.MustCompile` pattern. Never for
+  anything an input could trigger.
+- `log.Fatal` / `os.Exit` live only in `main` packages (`cmd/`, `examples/`),
+  never in the library. Never use zerolog's `panic` level; call the builtin
+  `panic()` if one is truly required.
+
+### Logging (zerolog)
+
+The library **accepts** a logger; it **never configures one**. Only the top-level
+program (`cmd/`, `examples/`) builds the logger, sets its level, and embeds it in
+the `context` so callees resolve it with `zerolog.Ctx(ctx)`.
+
+- **Plumbing — field on type, variadic on function.** Both default to silent and
+  add no breaking change:
+  - A **stateful type** carries an unexported `log zerolog.Logger` field, set in
+    its constructor from an additive `WithLogger(l zerolog.Logger) Option`
+    (constructors take a trailing `...Option`; `resolveConfig` defaults the field
+    to `zerolog.Nop()`).
+  - A **stateless exported function** takes a trailing variadic
+    `log ...zerolog.Logger`, resolved by `pickLog` (first logger, or `Nop`).
+  - Each package keeps these helpers in its own `logging.go`. Adding logging must
+    not change any existing exported signature or call site — `...Option` and
+    `...zerolog.Logger` are source-compatible, so KAT call sites stay untouched.
+- **The zero `zerolog.Logger` is unsafe** — it panics on Debug/Info/Warn/Error
+  (nil writer). Every logger field/var **must** default to `zerolog.Nop()`. Never
+  put a logger field on a struct used as a bare zero value.
+- **Sanitize — hard rule** (it overrides the upstream "trace may carry sensitive
+  content" allowance): never log a secret, at any level — key material, callKey,
+  derived/auth keys, IV/nonce, keying material, ciphertext, plaintext, decrypted
+  bytes, raw PCM/audio samples, relay keys/tokens, privacy tokens, device-identity,
+  QR codes. Log only metadata: byte **lengths**, counts, `ssrc`/`seq`/`roc`,
+  message/packet types, LIDs/JIDs, `call_id`, flags, durations, sanitized errors.
+  For a sensitive value log its length or a presence bool, never its contents.
+- **Granularity.** Log at function / frame / packet / key-derivation boundaries and
+  at branch and early-return decisions. **Never inside a per-sample / per-symbol /
+  per-coefficient hot loop** (range coder, FFT, filter taps) — a single trace at
+  the routine's start or finalize is enough.
+- **Form.** Structured fields only — `snake_case` keys, static ASCII messages (no
+  emoji, no `Msgf`/interpolation), `.Err(err)` on every error log. Collapse a
+  Started/Finished pair into one Finished line with a duration field.
+- **Levels** (use all but the `panic` level):
+  - **fatal** — unrecoverable, crash now; `main` packages only.
+  - **error** — recoverable, but a bug/unexpected condition to investigate.
+  - **warn** — recoverable and handled gracefully (malformed peer/user input, a
+    non-essential failure, the server rejecting our wire input).
+  - **info** — normal important events (lifecycle start/stop, success, connect).
+  - **debug** — control-flow context: why an early return/continue/skip, a
+    mode/branch choice, a parse failure that falls back.
+  - **trace** — verbose per-frame/per-packet state, useful only when actively
+    debugging.
+- Every `if err != nil` either logs with context or returns the error to a caller
+  that logs (the one exception to "log every error"). Layered debug context across
+  boundaries is fine.
+
 ## Porting floating-point code (bit-exactness)
 
 When the reference's float op order is load-bearing — matmul accumulation,
@@ -326,3 +410,10 @@ before proceeding. None of this lives in code comments.
   (and only there, plus `// ASSUMPTION`/context notes that need it).
 - No writing a decision artifact (ADR) without the human's direction.
 - No reuse of the old dublin/meowmeow calling code as a source.
+- No secret in a log line — keys, callKey, tokens, ciphertext/plaintext, PCM, or
+  IVs never get logged at any level; log lengths/metadata only (see Code style and
+  logging).
+- No panic in the library on runtime/wire input — return an error; `panic()` is
+  only for corrupt compiled-in `//go:embed` ROM (a build defect).
+- No emoji and no stdlib `log`/`fmt.Print*` for diagnostics — zerolog only, and the
+  library never configures it (it accepts a logger; the top-level program configures).

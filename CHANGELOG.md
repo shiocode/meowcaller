@@ -7,6 +7,15 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### docs — codify code style + logging conventions in AGENTS.md
+- Added a binding **Code style and logging** section (and matching "what never
+  happens here" bullets) to `AGENTS.md`: the style supplements (`any`, initialism
+  casing, `var x T`, indent-error-flow), errors-over-crashes (library never panics
+  on runtime/wire input), and the full zerolog logging contract — field-on-type /
+  variadic plumbing defaulting to `zerolog.Nop()`, the zero-value-logger hazard, the
+  hard no-secrets sanitization rule, boundary (not hot-loop) granularity, structured
+  no-emoji form, and the level definitions. Documentation only.
+
 ### lib — propagate sanitized opt-in zerolog debug/trace across the stack
 - Rolled the `session` logging convention out to every library package — `mlow`,
   `srtp`, `rtp`, `stun`, `signaling`, `relay`, `util` — so the whole call + codec
