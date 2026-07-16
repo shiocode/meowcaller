@@ -554,6 +554,8 @@ func (e *engine) onCallRaw(callNode *waBinary.Node) bool {
 		if callID == "" {
 			return false
 		}
+		muteState := mv.String("mute-state")
+		muted := muteState == "1"
 		// The deferred <accept> fires on the FIRST mute_v2 only — it arrives right after
 		// the relaylatency/transport. Later mute_v2 nodes are in-call mute-state changes
 		// (e.g. 1→0) and must not re-run the accept path on an already-accepted call.
@@ -561,14 +563,24 @@ func (e *engine) onCallRaw(callNode *waBinary.Node) bool {
 		m := e.calls[callID]
 		pending := m != nil && m.acceptPending
 		e.mu.Unlock()
+		if m != nil && m.call != nil {
+			if fn := m.call.onMuteStateFn(); fn != nil {
+				fn(muted)
+			}
+		}
 		if !pending {
 			e.c.log.Debug().
 				Str("call_id", callID).
-				Str("mute_state", mv.String("mute-state")).
-				Msg("mute_v2 ignored; call not awaiting accept")
+				Str("mute_state", muteState).
+				Bool("muted", muted).
+				Msg("mute_v2 observed; call not awaiting accept")
 			return false
 		}
-		e.c.log.Info().Str("call_id", callID).Msg("first mute_v2 received; sending deferred accept")
+		e.c.log.Info().
+			Str("call_id", callID).
+			Str("mute_state", muteState).
+			Bool("muted", muted).
+			Msg("first mute_v2 received; sending deferred accept")
 		e.sendAccept(callID, callNode.AttrGetter().JID("from"), mv.JID("call-creator"))
 		return false
 	case "video":

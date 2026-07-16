@@ -22,6 +22,7 @@ type Call struct {
 	onReady      func()
 	onEnd        func(reason string)
 	onState      func(CallPhase)
+	onMuteState  func(muted bool)
 	videoSink    VideoSink
 	onVideoState func(VideoState)
 }
@@ -146,6 +147,21 @@ func (c *Call) OnStateChange(fn func(CallPhase)) {
 	c.mu.Lock()
 	c.onState = fn
 	c.mu.Unlock()
+}
+
+// OnMuteState registers a callback fired for each inbound WhatsApp mute_v2 state.
+// The callback describes the remote party's microphone state: true means muted.
+func (c *Call) OnMuteState(fn func(muted bool)) {
+	c.mu.Lock()
+	c.onMuteState = fn
+	c.mu.Unlock()
+}
+
+// onMuteStateFn returns the Call's remote mute-state callback under its lock.
+func (c *Call) onMuteStateFn() func(bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.onMuteState
 }
 
 // setPhase advances the call's phase and fires OnStateChange (used by the engine).
