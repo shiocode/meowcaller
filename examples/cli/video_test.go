@@ -54,6 +54,23 @@ func TestVideoBridgeControlRejectsUnknownAction(t *testing.T) {
 	}
 }
 
+func TestVideoBridgeControlDispatchesReaction(t *testing.T) {
+	vb := &videoBridge{}
+	var got vbControl
+	vb.OnControl(func(command vbControl) error {
+		got = command
+		return nil
+	})
+	req := httptest.NewRequest(http.MethodPost, "/control", bytes.NewBufferString(`{"action":"reaction","emoji":"👍"}`))
+	rec := httptest.NewRecorder()
+
+	vb.handleControl(rec, req)
+
+	if rec.Code != http.StatusNoContent || got.Action != "reaction" || got.Emoji != "👍" {
+		t.Fatalf("reaction control = (%d, %+v)", rec.Code, got)
+	}
+}
+
 func TestVideoBridgeServesCurrentPairingQR(t *testing.T) {
 	vb := &videoBridge{}
 	vb.setQRCodePNG([]byte("png-bytes"))

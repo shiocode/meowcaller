@@ -23,6 +23,9 @@ type webCallState struct {
 	VideoState  int    `json:"video_state"`
 	Orientation int    `json:"orientation,omitempty"`
 	Message     string `json:"message,omitempty"`
+	Emoji       string `json:"emoji,omitempty"`
+	Sender      string `json:"sender,omitempty"`
+	Removed     bool   `json:"removed,omitempty"`
 }
 
 type webCallController struct {
@@ -56,6 +59,13 @@ func (c *webCallController) publish(state webCallState) {
 		Msg("web call console state")
 }
 
+func (c *webCallController) publishReaction(state webCallState) {
+	c.bridge.PublishEvent(state)
+	c.log.Info().Str("event", state.Event).Str("call_id", state.CallID).
+		Str("sender", state.Sender).Str("emoji", state.Emoji).Bool("removed", state.Removed).
+		Msg("web call console reaction")
+}
+
 func (c *webCallController) onIncomingCall(call *meowcaller.Call) {
 	c.mu.Lock()
 	if c.call != nil || c.pending != nil {
@@ -74,6 +84,12 @@ func (c *webCallController) attach(call *meowcaller.Call) error {
 	call.ReceiveVideo(meowcaller.VideoSinkFunc(c.bridge.WriteFrame))
 	call.OnVideoKeyframeRequest(c.bridge.RequestKeyframe)
 	call.OnPeerAccept(c.bridge.RequestKeyframe)
+	call.OnReaction(func(reaction meowcaller.CallReaction) {
+		c.publishReaction(webCallState{
+			Event: "reaction", CallID: call.ID(), Peer: call.Peer().String(),
+			Emoji: reaction.Emoji, Sender: reaction.Sender.String(), Removed: reaction.Removed,
+		})
+	})
 	call.OnVideoState(func(state meowcaller.VideoState) {
 		c.bridge.SetOrientation(state.Orientation)
 		c.publish(webCallState{
@@ -155,6 +171,19 @@ func (c *webCallController) control(command vbControl) error {
 			return err
 		}
 		return call.SetVideoOrientation(command.Orientation)
+	case "reaction":
+		call, err := c.activeCall()
+		if err != nil {
+			return err
+		}
+		if err = call.SendReaction(command.Emoji); err != nil {
+			return err
+		}
+		c.publishReaction(webCallState{
+			Event: "reaction", CallID: call.ID(), Peer: call.Peer().String(),
+			Emoji: command.Emoji, Sender: "self", Removed: command.Emoji == "",
+		})
+		return nil
 	case "hangup":
 		call, err := c.activeCall()
 		if err != nil {
