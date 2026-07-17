@@ -51,7 +51,7 @@ Core VoIP features are present:
 - Video calls, including calls that start with video
 - Mid-call audio-to-video upgrade, acceptance, rejection, cancellation, and downgrade
 - Camera orientation and authenticated video keyframe feedback
-- Send and receive call emoji reactions
+- Send and receive call emoji reactions over the dedicated RTC app-data stream
 
 Things that are not yet implemented:
 
