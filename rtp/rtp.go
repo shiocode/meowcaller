@@ -306,7 +306,7 @@ type VideoRtpStream struct {
 }
 
 func NewVideoRtpStream(ssrc, tsStride uint32) *VideoRtpStream {
-	return &VideoRtpStream{ssrc: ssrc, tsStride: tsStride}
+	return &VideoRtpStream{ssrc: ssrc, seq: 1, tsStride: tsStride}
 }
 
 func (s *VideoRtpStream) RtpTimestamp() uint32 {

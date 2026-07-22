@@ -117,6 +117,9 @@ func TestVideoStreamUsesOneTimestampPerAccessUnit(t *testing.T) {
 	if first.Timestamp != 0 || second.Timestamp != 0 || third.Timestamp != 4500 {
 		t.Errorf("timestamps = (%d, %d, %d), want (0, 0, 4500)", first.Timestamp, second.Timestamp, third.Timestamp)
 	}
+	if first.SequenceNumber != 1 || second.SequenceNumber != 2 || third.SequenceNumber != 3 {
+		t.Errorf("sequences = (%d, %d, %d), want (1, 2, 3)", first.SequenceNumber, second.SequenceNumber, third.SequenceNumber)
+	}
 	if first.Marker || !second.Marker || !third.Marker {
 		t.Errorf("markers = (%v, %v, %v), want (false, true, true)", first.Marker, second.Marker, third.Marker)
 	}
