@@ -28,7 +28,6 @@ func newSmplDecoderState() *SmplDecoderState {
 // MlowDecoder is a stateful pure-Go MLow decoder.
 type MlowDecoder struct {
 	state              *SmplDecoderState
-	activeConfig       int
 	redundancy         int32
 	droppedUnsupported uint32
 	log                zerolog.Logger
@@ -37,7 +36,7 @@ type MlowDecoder struct {
 // NewMlowDecoder allocates a fresh decoder.
 func NewMlowDecoder(opts ...Option) *MlowDecoder {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/decoder.rs#L36-L41
-	return &MlowDecoder{state: newSmplDecoderState(), activeConfig: -1, log: resolveConfig(opts).log}
+	return &MlowDecoder{state: newSmplDecoderState(), log: resolveConfig(opts).log}
 }
 
 // SetRedundancy sets the negotiated RED redundancy level (0 = bare frames).
@@ -50,7 +49,6 @@ func (d *MlowDecoder) SetRedundancy(n int) {
 func (d *MlowDecoder) Reset() {
 	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/ed12f359a086b28e807ba236f0977af1000859fe/wacore/src/voip/mlow/decoder.rs#L49-L51
 	d.state = newSmplDecoderState()
-	d.activeConfig = -1
 }
 
 // Decode decodes one RTP MLow payload into a 60 ms (960-sample) PCM frame, float in [-1, 1].
@@ -166,12 +164,6 @@ func (d *MlowDecoder) decodeFrame(frame []byte) []float32 {
 		}
 		return make([]float32, opusFrameSamps)
 	}
-	config := int(frame[0]>>2) & 1
-	if d.activeConfig >= 0 && d.activeConfig != config {
-		d.log.Debug().Int("old_config", d.activeConfig).Int("new_config", config).Msg("resetting MLow decoder for operating-point change")
-		d.state = newSmplDecoderState()
-	}
-	d.activeConfig = config
 	return d.decodeActiveFrame(frame, outLen)
 }
 

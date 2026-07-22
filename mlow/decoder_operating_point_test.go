@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestOperatingPointChangeResetsDecoderState(t *testing.T) {
+func TestOperatingPointChangePreservesDecoderState(t *testing.T) {
 	pcm := make([]float32, opusFrameSamps)
 	for i := range pcm {
 		pcm[i] = 0.05
@@ -23,11 +23,8 @@ func TestOperatingPointChangeResetsDecoderState(t *testing.T) {
 	if got := decoder.Decode(lowRate); len(got) != opusFrameSamps {
 		t.Fatalf("low-rate frame produced %d samples", len(got))
 	}
-	if decoder.state == highRateState {
-		t.Fatal("operating-point change retained the old predictor state")
-	}
-	if decoder.activeConfig != 1 {
-		t.Fatalf("active config = %d, want 1", decoder.activeConfig)
+	if decoder.state != highRateState {
+		t.Fatal("operating-point change replaced the predictor state")
 	}
 }
 

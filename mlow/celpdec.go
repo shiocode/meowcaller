@@ -250,16 +250,40 @@ type CelpDecParams struct {
 
 // CelpDecState is the persistent decoder synthesis state (C float domain).
 type CelpDecState struct {
-	noise       NoiseGenerator
-	acbState    []float32
-	acbStateLen int
-	lpcSynthMem [SmplOrder]float32
-	lsfPrev     [SmplOrder]float32
-	prevNrgres  float32
-	hp          HpPostfilterState
+	noise               NoiseGenerator
+	acbState            []float32
+	acbStateLen         int
+	lpcSynthMem         [SmplOrder]float32
+	lsfPrev             [SmplOrder]float32
+	prevNrgres          float32
+	uvPulseShapingState [2]float32
+	tiltPostfilter      float32
+	hp                  HpPostfilterState
 	// traceExcPre captures the per-subframe pre-noise excitation into ExcPre (KAT only).
 	traceExcPre bool
 	ExcPre      []float32
+}
+
+func smplLowRateUvPulseShape(x []float32, state *[2]float32) {
+	prevX := state[0]
+	prevY := state[1]
+	for i, sample := range x {
+		ma := 0.5*sample + 0.1665*prevX
+		prevX = sample
+		prevY = ma + 0.333*prevY
+		x[i] = prevY
+	}
+	state[0] = prevX
+	state[1] = prevY
+}
+
+func smplLowRateTilt(x []float32, state *float32) {
+	prev := *state
+	for i, sample := range x {
+		x[i] = 0.84*sample + 0.16*prev
+		prev = sample
+	}
+	*state = prev
 }
 
 // NewCelpDecState allocates a fresh CELP decoder state.
@@ -330,6 +354,11 @@ func (s *CelpDecState) SynthFrame(nlsf []float32, lsfInterpolIdx int, pulses []i
 		if s.traceExcPre {
 			s.ExcPre = append(s.ExcPre, lpcRes[base:base+subframeLen]...)
 		}
+		if lowRate && !params.Voiced && params.SfPulses[sf] > 0 {
+			smplLowRateUvPulseShape(lpcRes[base:base+subframeLen], &s.uvPulseShapingState)
+		} else {
+			s.uvPulseShapingState = [2]float32{}
+		}
 
 		nrgres := SmplDecodeResnrg(params.NrgresDbqQ14[sf], int32(subframeLen))
 		if !params.Voiced {
@@ -339,6 +368,11 @@ func (s *CelpDecState) SynthFrame(nlsf []float32, lsfInterpolIdx int, pulses []i
 		SmplCelpGenNoise(&s.noise, lpcRes[base:base+subframeLen], subframeLen, params.Voiced, params.SfPulses[sf], nrgres, params.FcbgIdx[sf], lsfs[sf][:], normBr, gains.uv[:], noise[:])
 		for i := 0; i < subframeLen; i++ {
 			lpcRes[base+i] += noise[i]
+		}
+		if lowRate && params.Voiced {
+			smplLowRateTilt(lpcRes[base:base+subframeLen], &s.tiltPostfilter)
+		} else {
+			s.tiltPostfilter = lpcRes[base+subframeLen-1]
 		}
 
 		filtAR16(lpcRes[base:base+subframeLen], &a[sf], ybuf[:], SmplOrder+base, subframeLen)
