@@ -87,6 +87,13 @@ func (p *audioPlayoutBuffer) reset(timestamp uint32, frame []float32) {
 }
 
 func alignAudioFrame(frame []float32, samples int) []float32 {
+	// Real-time sinks advance while no packets arrive. Preserve a
+	// decoder's natural multi-frame output, but do not replay an elapsed RTP gap
+	// as queued silence when the next packet finally arrives.
+	maxSamples := max(len(frame), FrameSamples)
+	if samples > maxSamples {
+		samples = maxSamples
+	}
 	if samples == len(frame) {
 		return frame
 	}

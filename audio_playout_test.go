@@ -14,7 +14,7 @@ func (s *playoutTestSink) WriteFrame(frame []float32) error {
 
 func (s *playoutTestSink) Close() error { return nil }
 
-func TestAudioPlayoutUsesRtpTimestampSpan(t *testing.T) {
+func TestAudioPlayoutPadsShortFrameToCodecInterval(t *testing.T) {
 	playout := newAudioPlayoutBuffer()
 	sink := &playoutTestSink{}
 	first := make([]float32, FrameSamples)
@@ -37,8 +37,8 @@ func TestAudioPlayoutUsesRtpTimestampSpan(t *testing.T) {
 	if len(sink.frames) != 2 {
 		t.Fatalf("writes = %d, want 2", len(sink.frames))
 	}
-	if len(sink.frames[0]) != FrameSamples || len(sink.frames[1]) != 2*FrameSamples {
-		t.Fatalf("write lengths = [%d %d], want [%d %d]", len(sink.frames[0]), len(sink.frames[1]), FrameSamples, 2*FrameSamples)
+	if len(sink.frames[0]) != FrameSamples || len(sink.frames[1]) != FrameSamples {
+		t.Fatalf("write lengths = [%d %d], want [%d %d]", len(sink.frames[0]), len(sink.frames[1]), FrameSamples, FrameSamples)
 	}
 	for i, sample := range sink.frames[1] {
 		want := float32(0)
@@ -55,6 +55,34 @@ func TestAudioPlayoutUsesRtpTimestampSpan(t *testing.T) {
 	}
 	if len(sink.frames) != 3 || len(sink.frames[2]) != FrameSamples {
 		t.Fatalf("steady writes = %v, want third %d-sample frame", frameLengths(sink.frames), FrameSamples)
+	}
+}
+
+func TestAudioPlayoutDoesNotReplayElapsedGap(t *testing.T) {
+	playout := newAudioPlayoutBuffer()
+	sink := &playoutTestSink{}
+	frame := make([]float32, FrameSamples)
+
+	if _, err := playout.Push(0, frame, sink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := playout.Push(FrameSamples, frame, sink); err != nil {
+		t.Fatal(err)
+	}
+	started, err := playout.Push(8*FrameSamples, frame, sink)
+	if err != nil || !started {
+		t.Fatalf("gap push = (%v, %v), want (true, nil)", started, err)
+	}
+	if got := frameLengths(sink.frames); len(got) != 2 || got[0] != FrameSamples || got[1] != FrameSamples {
+		t.Fatalf("write lengths = %v, want [%d %d]", got, FrameSamples, FrameSamples)
+	}
+}
+
+func TestAlignAudioFrameKeepsNaturalMultiFrameOutput(t *testing.T) {
+	frame := make([]float32, 2*FrameSamples)
+	aligned := alignAudioFrame(frame, 8*FrameSamples)
+	if len(aligned) != len(frame) {
+		t.Fatalf("aligned length = %d, want natural length %d", len(aligned), len(frame))
 	}
 }
 
