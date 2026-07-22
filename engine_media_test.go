@@ -1,6 +1,7 @@
 package meowcaller
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,9 +57,15 @@ func TestVideoSenderStartsAtIDRAndUsesWhatsappHeaders(t *testing.T) {
 		0, 0, 0, 1, 0x65, 1, 2, 3,
 	}
 	packets := sender.protectAccessUnit(idr, 50*time.Millisecond)
-	if len(packets) != 3 {
-		t.Fatalf("IDR produced %d packets, want 3", len(packets))
+	if len(packets) != 1 {
+		t.Fatalf("IDR produced %d packets, want one packed access-unit packet", len(packets))
 	}
+	receiver, err := NewMediaPipeline(callKey, "222222222222222:0@lid", "111111111111111:0@lid", 0x55667788, FrameSamples)
+	if err != nil {
+		t.Fatalf("receiver pipe: %v", err)
+	}
+	var depack rtp.H264Depacketizer
+	var reconstructed []byte
 	for i, packet := range packets {
 		header, ok := rtp.ParseRtpHeader(packet)
 		if !ok {
@@ -74,6 +81,17 @@ func TestVideoSenderStartsAtIDRAndUsesWhatsappHeaders(t *testing.T) {
 		if header.VideoExtension == nil || header.VideoExtension.MediaFrameInfo != rtp.VideoMediaFrameInfoIDR {
 			t.Fatalf("packet %d video extension = %+v", i, header.VideoExtension)
 		}
+		_, payload, ok := receiver.UnprotectAudio(packet)
+		if !ok {
+			t.Fatalf("packet %d did not unprotect", i)
+		}
+		for _, nalu := range depack.Depacketize(payload) {
+			reconstructed = append(reconstructed, 0, 0, 0, 1)
+			reconstructed = append(reconstructed, nalu...)
+		}
+	}
+	if !bytes.Equal(reconstructed, idr) {
+		t.Fatalf("reconstructed access unit = %x, want %x", reconstructed, idr)
 	}
 }
 
